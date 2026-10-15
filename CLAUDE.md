@@ -7,7 +7,7 @@
 - Бэкенд: Python 3.13, FastAPI, SQLModel, SQLite. Зависимости через uv: `cd backend && uv add <пакет>` (не pip).
 - Фронтенд: React 19 + TypeScript + Vite, Tailwind CSS v4, shadcn/ui (Radix), иконки lucide-react.
   - Роутинг: react-router v7, импорт из `react-router` (не `react-router-dom`).
-  - Карты: react-leaflet. Графики: компонент `chart` из shadcn (recharts).
+  - Карты: react-leaflet, в компоненте с картой один раз `import '@/lib/leaflet'`. Графики: компонент `chart` из shadcn (recharts).
 - ИИ: только через `ask_llm()` из `backend/app/llm.py`.
 - Не добавляй библиотеку, если задачу решают уже установленные. Не переходи на другие фреймворки (Next.js, Django, Redux, MUI и т. п.).
 
@@ -16,14 +16,23 @@
 - `backend/app/main.py` — приложение, подключение роутеров
 - `backend/app/models.py` — таблицы и схемы данных
 - `backend/app/routers/` — эндпоинты, файл на раздел
+- `backend/app/db.py` — подключение к SQLite, `SCHEMA_VERSION`
 - `backend/app/seed.py` — демо-данные для показа жюри
 - `backend/app/llm.py` — нейросеть
 - `backend/tests/` — тесты API
-- `frontend/src/pages/` — страницы; `App.tsx` — маршруты; `components/Layout.tsx` — шапка и меню
-- `frontend/src/components/ui/` — компоненты shadcn. Новые добавлять командой `cd frontend && npx shadcn@latest add <имя>`
+- `frontend/src/pages/` — страницы; `App.tsx` — маршруты
+- `frontend/src/components/` — свои компоненты; `components/ui/` — компоненты shadcn, новые добавлять командой `cd frontend && npx shadcn@latest add <имя>`
 - `frontend/src/lib/api.ts` — все запросы к API и их типы
-- `frontend/src/config.ts` — название проекта, центр карты
 - `deploy/`, `.github/` — сервер и автодеплой. Не трогать без прямой просьбы.
+
+## Чтобы не сломать деплой
+
+Автодеплой рассчитан на эту структуру. При любой переделке сохраняй:
+
+- `frontend/` собирается командой `npm run build` в `frontend/dist`;
+- бэкенд — FastAPI в `backend/`, точка входа `app.main:app`, зависимости в `backend/pyproject.toml` через uv;
+- эндпоинт `/api/health` отвечает `{"status": "ok"}` — по нему деплой проверяет сайт;
+- в `backend/tests/` есть тесты, и они проходят.
 
 ## Запуск
 

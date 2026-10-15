@@ -1,20 +1,17 @@
 import { BrowserRouter, Route, Routes } from 'react-router'
-import { Layout } from '@/components/Layout'
-import IssuesPage from '@/pages/IssuesPage'
+import { Toaster } from '@/components/ui/sonner'
+import HomePage from '@/pages/HomePage'
 import NotFoundPage from '@/pages/NotFoundPage'
-import StatsPage from '@/pages/StatsPage'
 
-// Новая страница: создайте файл в src/pages, добавьте Route здесь и ссылку в Layout.tsx
+// Новая страница: создайте файл в src/pages и добавьте Route здесь
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route element={<Layout />}>
-          <Route index element={<IssuesPage />} />
-          <Route path="stats" element={<StatsPage />} />
-          <Route path="*" element={<NotFoundPage />} />
-        </Route>
+        <Route index element={<HomePage />} />
+        <Route path="*" element={<NotFoundPage />} />
       </Routes>
+      <Toaster richColors position="top-center" />
     </BrowserRouter>
   )
 }

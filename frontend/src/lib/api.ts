@@ -1,30 +1,6 @@
 // Все запросы к бэкенду идут через этот файл. Типы повторяют модели из backend/app/models.py
 
-export type IssueStatus = 'new' | 'in_progress' | 'done'
-
-export type Issue = {
-  id: number
-  title: string
-  description: string
-  category: string
-  lat: number | null
-  lng: number | null
-  status: IssueStatus
-  ai_comment: string | null
-  created_at: string
-}
-
-export type IssueCreate = Pick<Issue, 'title' | 'description' | 'category' | 'lat' | 'lng'>
-export type IssueUpdate = Partial<Pick<Issue, 'title' | 'description' | 'category' | 'status'>>
-
-export type CountItem = { name: string; count: number }
-export type Stats = { total: number; by_category: CountItem[]; by_status: CountItem[] }
-
-export const STATUS_LABELS: Record<IssueStatus, string> = {
-  new: 'Новое',
-  in_progress: 'В работе',
-  done: 'Решено',
-}
+export type Health = { status: string; llm: string }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
@@ -45,15 +21,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  listIssues: () => request<Issue[]>('/issues'),
-  categories: () => request<string[]>('/issues/categories'),
-  createIssue: (data: IssueCreate) =>
-    request<Issue>('/issues', { method: 'POST', body: JSON.stringify(data) }),
-  updateIssue: (id: number, data: IssueUpdate) =>
-    request<Issue>(`/issues/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  deleteIssue: (id: number) => request<void>(`/issues/${id}`, { method: 'DELETE' }),
-  askAi: (id: number) => request<Issue>(`/issues/${id}/ai`, { method: 'POST' }),
-  stats: () => request<Stats>('/stats'),
+  health: () => request<Health>('/health'),
 }
 
 // Бэкенд отдаёт время в UTC без часового пояса

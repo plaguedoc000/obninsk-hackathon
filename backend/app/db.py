@@ -7,12 +7,12 @@
 from typing import Annotated, Iterator
 
 from fastapi import Depends
-from sqlalchemy import text
+from sqlalchemy import MetaData, text
 from sqlmodel import Session, SQLModel, create_engine
 
 from .config import DATABASE_URL
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 
@@ -25,7 +25,10 @@ def init_db() -> None:
         current = conn.execute(text("PRAGMA user_version")).scalar()
 
     if current != SCHEMA_VERSION:
-        SQLModel.metadata.drop_all(engine)
+        # Удаляем все таблицы в базе, включая те, чьих моделей уже нет
+        existing = MetaData()
+        existing.reflect(engine)
+        existing.drop_all(engine)
         SQLModel.metadata.create_all(engine)
         with engine.begin() as conn:
             conn.execute(text(f"PRAGMA user_version = {SCHEMA_VERSION}"))
