@@ -47,11 +47,20 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           cat deploy/known_hosts >> ~/.ssh/known_hosts
 
+      # PyPI из России очень медленный, поэтому библиотеки собираем здесь под Linux
+      # и отправляем на сервер готовыми; rsync передаёт только изменения
+      - name: Библиотеки Python для сервера
+        working-directory: backend
+        run: |
+          uv export --frozen --no-dev --no-emit-project --no-hashes -q -o /tmp/requirements.txt
+          uv pip install -q --target .deps --python-platform x86_64-manylinux_2_28 --python-version 3.13 \
+            -r /tmp/requirements.txt
+
       - name: Бэкенд
         run: |
-          rsync -az --delete --exclude .venv --exclude __pycache__ --exclude .pytest_cache \
+          rsync -az --delete --exclude .venv --exclude __pycache__ --exclude .pytest_cache --exclude tests \
             backend/ "$SERVER:/srv/app/backend/"
-          ssh "$SERVER" 'cd /srv/app/backend && uv sync --frozen --no-dev && sudo systemctl restart app-api'
+          ssh "$SERVER" 'sudo systemctl restart app-api'
           ssh "$SERVER" 'for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8000/api/health && exit 0; sleep 1; done; journalctl -u app-api -n 40 --no-pager; exit 1'
 
       - name: Фронтенд

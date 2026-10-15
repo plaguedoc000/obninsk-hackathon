@@ -30,18 +30,23 @@ else
   echo "Swap уже есть"
 fi
 
+log "Зеркало пакетов Яндекса (deb.debian.org из России качает очень медленно)"
+for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+  [[ -f "$f" ]] || continue
+  sed -i -E \
+    -e 's#https?://(deb|security)\.debian\.org/debian-security#https://mirror.yandex.ru/debian-security#g' \
+    -e 's#https?://deb\.debian\.org/debian([/ ]|$)#https://mirror.yandex.ru/debian\1#g' "$f"
+done
+
 log "Пакеты"
 apt-get update -q
-apt-get install -y -q --no-install-recommends ca-certificates curl gnupg rsync sudo sqlite3 ufw
+apt-get install -y -q --no-install-recommends ca-certificates curl gnupg python3 rsync sudo sqlite3 ufw
 if ! apt-cache show caddy >/dev/null 2>&1; then
   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' > /etc/apt/sources.list.d/caddy-stable.list
   apt-get update -q
 fi
 apt-get install -y -q caddy
-if ! command -v uv >/dev/null; then
-  curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin UV_NO_MODIFY_PATH=1 sh
-fi
 timedatectl set-timezone Europe/Moscow 2>/dev/null || true
 
 log "Логи не больше 100 МБ"
@@ -51,6 +56,7 @@ systemctl restart systemd-journald
 
 log "Пользователь deploy"
 id deploy &>/dev/null || useradd --create-home --shell /bin/bash deploy
+usermod -aG systemd-journal deploy
 install -d -m 700 -o deploy -g deploy /home/deploy/.ssh
 touch /home/deploy/.ssh/authorized_keys
 grep -qxF "$DEPLOY_KEY" /home/deploy/.ssh/authorized_keys || echo "$DEPLOY_KEY" >> /home/deploy/.ssh/authorized_keys
@@ -82,7 +88,9 @@ User=deploy
 Group=deploy
 WorkingDirectory=$APP_DIR/backend
 Environment=PYTHONUNBUFFERED=1
-ExecStart=$APP_DIR/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --proxy-headers
+# Библиотеки собираются в GitHub Actions и приходят в .deps вместе с кодом
+Environment=PYTHONPATH=$APP_DIR/backend/.deps
+ExecStart=/usr/bin/python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --proxy-headers
 Restart=always
 RestartSec=3
 MemoryMax=450M
