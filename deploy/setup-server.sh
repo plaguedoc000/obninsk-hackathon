@@ -46,8 +46,14 @@ if ! apt-cache show caddy >/dev/null 2>&1; then
   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' > /etc/apt/sources.list.d/caddy-stable.list
   apt-get update -q
 fi
-apt-get install -y -q caddy
+apt-get install -y -q caddy unattended-upgrades
 timedatectl set-timezone Europe/Moscow 2>/dev/null || true
+
+log "Обновления безопасности: сейчас и автоматически каждый день"
+apt-get upgrade -y -q -o Dpkg::Options::=--force-confold
+printf 'APT::Periodic::Update-Package-Lists "1";\nAPT::Periodic::Unattended-Upgrade "1";\n' \
+  > /etc/apt/apt.conf.d/20auto-upgrades
+systemctl enable --now unattended-upgrades >/dev/null
 
 log "Логи не больше 100 МБ"
 mkdir -p /etc/systemd/journald.conf.d
@@ -63,7 +69,10 @@ grep -qxF "$DEPLOY_KEY" /home/deploy/.ssh/authorized_keys || echo "$DEPLOY_KEY" 
 chown deploy:deploy /home/deploy/.ssh/authorized_keys
 chmod 600 /home/deploy/.ssh/authorized_keys
 
-install -d -o deploy -g deploy "$APP_DIR" "$APP_DIR/backend" "$APP_DIR/web" "$APP_DIR/data"
+install -d -o deploy -g deploy "$APP_DIR" "$APP_DIR/backend" "$APP_DIR/web"
+install -d -m 700 -o deploy -g deploy "$APP_DIR/data"
+chmod 700 "$APP_DIR/data"
+find "$APP_DIR/data" -type f -exec chmod 600 {} +
 [[ -f "$APP_DIR/.env" ]] || install -m 600 -o deploy -g deploy /dev/null "$APP_DIR/.env"
 if [[ ! -f "$APP_DIR/web/index.html" ]]; then
   echo '<!doctype html><meta charset="utf-8"><title>Сервер работает</title><h1>Сервер работает, ждём первый деплой</h1>' \
@@ -97,6 +106,8 @@ MemoryMax=450M
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
+# Новые файлы (база) доступны только пользователю deploy
+UMask=0077
 
 [Install]
 WantedBy=multi-user.target
@@ -109,7 +120,9 @@ cat > /etc/caddy/Caddyfile <<EOF
 (app) {
 	encode zstd gzip
 	header {
+		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options nosniff
+		X-Frame-Options SAMEORIGIN
 		Referrer-Policy strict-origin-when-cross-origin
 		-Server
 	}
@@ -149,14 +162,28 @@ ufw allow 443/udp >/dev/null
 ufw --force enable >/dev/null && ufw status | head -12 || echo "ufw не запустился, пропускаю"
 
 log "SSH только по ключам"
-if [[ -s /root/.ssh/authorized_keys ]] && grep -q '^Include /etc/ssh/sshd_config.d' /etc/ssh/sshd_config; then
-  cat > /etc/ssh/sshd_config.d/10-hardening.conf <<EOF
+if [[ -s /root/.ssh/authorized_keys ]]; then
+  # sshd берёт первое найденное значение, поэтому глушим чужие настройки
+  # (у LandVPS это 00password.conf с PasswordAuthentication yes)
+  rm -f /etc/ssh/sshd_config.d/00-hardening.conf /etc/ssh/sshd_config.d/10-hardening.conf
+  sed -i -E 's/^[[:space:]]*(PasswordAuthentication|PermitRootLogin|KbdInteractiveAuthentication)[[:space:]].*/# & (отключено setup-server.sh)/I' \
+    /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null || true
+  cat > /etc/ssh/sshd_config.d/00-hardening.conf <<EOF
 PasswordAuthentication no
 KbdInteractiveAuthentication no
 PermitRootLogin prohibit-password
 EOF
-  sshd -t && { systemctl reload ssh 2>/dev/null || systemctl reload sshd; }
-  echo "Вход по паролю отключён"
+  sshd -t
+  systemctl reload ssh 2>/dev/null || systemctl reload sshd
+  SSHD_CFG=$(sshd -T)
+  if grep -qx 'passwordauthentication no' <<<"$SSHD_CFG" \
+    && grep -qxE 'permitrootlogin (without-password|prohibit-password)' <<<"$SSHD_CFG"; then
+    echo "Вход по паролю отключён (проверено sshd -T)"
+  else
+    echo "ОШИБКА: sshd всё ещё принимает пароль:"
+    grep -E '^(passwordauthentication|permitrootlogin) ' <<<"$SSHD_CFG"
+    exit 1
+  fi
 else
   echo "Нет ключей у root, вход по паролю оставлен"
 fi
