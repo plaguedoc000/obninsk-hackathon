@@ -16,7 +16,7 @@ env:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -31,7 +31,7 @@ jobs:
         working-directory: frontend
         run: npm ci && npm run build
 
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.3.0
 
       - name: Тесты бэкенда
         working-directory: backend
