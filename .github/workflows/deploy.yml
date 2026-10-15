@@ -1,0 +1,63 @@
+name: Деплой
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Деплои идут по очереди; если пушей много, выкатывается только последний
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+env:
+  SERVER: deploy@31.77.173.151
+  SITE_URL: https://31-77-173-151.sslip.io
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Сборка фронтенда
+        working-directory: frontend
+        run: npm ci && npm run build
+
+      - uses: astral-sh/setup-uv@v10
+
+      - name: Тесты бэкенда
+        working-directory: backend
+        run: uv sync --frozen && uv run pytest -q
+
+      - name: Доступ к серверу
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          test -n "$DEPLOY_SSH_KEY" || { echo "::error::Не задан секрет DEPLOY_SSH_KEY"; exit 1; }
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          cat deploy/known_hosts >> ~/.ssh/known_hosts
+
+      - name: Бэкенд
+        run: |
+          rsync -az --delete --exclude .venv --exclude __pycache__ --exclude .pytest_cache \
+            backend/ "$SERVER:/srv/app/backend/"
+          ssh "$SERVER" 'cd /srv/app/backend && uv sync --frozen --no-dev && sudo systemctl restart app-api'
+          ssh "$SERVER" 'for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8000/api/health && exit 0; sleep 1; done; journalctl -u app-api -n 40 --no-pager; exit 1'
+
+      - name: Фронтенд
+        run: rsync -az --delete frontend/dist/ "$SERVER:/srv/app/web/"
+
+      - name: Проверка сайта
+        run: |
+          curl -fsS --retry 10 --retry-delay 3 --retry-all-errors "$SITE_URL/api/health"
+          echo "Готово: $SITE_URL"

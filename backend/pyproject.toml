@@ -1,0 +1,23 @@
+[project]
+name = "backend"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi[standard]>=0.143.2",
+    "gigachat>=0.2.3",
+    "openai>=3.31.0",
+    "python-dotenv>=1.2.4",
+    "sqlmodel>=0.0.48",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

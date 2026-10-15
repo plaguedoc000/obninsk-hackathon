@@ -1,0 +1,16 @@
+{
+  "name": "obninsk-hackathon",
+  "private": true,
+  "scripts": {
+    "setup": "npm install && npm --prefix frontend install && cd backend && uv sync",
+    "dev": "concurrently -k -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "cd backend && uv run uvicorn app.main:app --reload --port 8010",
+    "dev:web": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "test": "cd backend && uv run pytest -q",
+    "check": "npm run build && npm test"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.6"
+  }
+}
