@@ -155,3 +155,50 @@ def annotate(img: np.ndarray, M: np.ndarray, cal: dict, target_ppmm: float, meas
         draw.rectangle([x0 - 4, y0 - 3, x0 + tw + 4, y0 + th + 6], fill=(0, 0, 0))
         draw.text((x0, y0 - bbox[1]), text, font=font, fill=(255, 255, 255))
     return cv2.cvtColor(np.asarray(pil), cv2.COLOR_RGB2BGR)
+
+
+# ---------------------------------------------------------------- «Сохранить файлы»
+
+# цвета как в интерфейсе (BGR): эталон синий #5170FF, области красные #E01E3C
+MARKER_BGR = (255, 112, 81)
+AREA_BGR = (60, 30, 224)
+
+
+def draw_outlines(img: np.ndarray, M: np.ndarray, cal: dict, measurements: list[dict]) -> np.ndarray:
+    """Контуры эталона и областей поверх приведённого фото."""
+    out = img.copy()
+    h, w = out.shape[:2]
+    lw = max(2, int(round(min(w, h) / 400)))
+    for m in measurements:
+        poly = m.get("_polygon_px")
+        if poly is not None:
+            q = apply_transform(M, np.asarray(poly))
+            cv2.polylines(out, [np.round(q).astype(np.int32).reshape(-1, 1, 2)], True, AREA_BGR, lw, cv2.LINE_AA)
+    marker = apply_transform(M, np.array(cal["corners_px"]))
+    cv2.polylines(out, [np.round(marker).astype(np.int32).reshape(-1, 1, 2)], True, MARKER_BGR, lw, cv2.LINE_AA)
+    return out
+
+
+def draw_caption(img: np.ndarray, lines: list[str]) -> np.ndarray:
+    """Подписи столбиком слева на тёмной полосе под фото: так они не закрывают ни эталон, ни образец.
+    Фото не масштабируется — полоса просто добавляется снизу, пикселей на мм остаётся столько же."""
+    h, w = img.shape[:2]
+    size = max(14, int(round(min(w, h) / 32)))
+    pad = max(8, int(size * 0.6))
+    step = int(size * 1.35)
+    strip_h = 2 * pad + step * (len(lines) - 1) + int(size * 1.15)
+    out = np.empty((h + strip_h, w, 3), np.uint8)
+    out[:h] = img
+    out[h:] = (15, 5, 4)  # фон «Лаборатории» #04050F
+    font = _font(size)
+    if font is None:  # нет шрифта с кириллицей — латиница средствами OpenCV
+        for i, text in enumerate(lines):
+            ascii_text = text.encode("ascii", "replace").decode()
+            y = h + pad + i * step + size
+            cv2.putText(out, ascii_text, (pad, y), cv2.FONT_HERSHEY_SIMPLEX, size / 30, (255, 255, 255), 2, cv2.LINE_AA)
+        return out
+    pil = Image.fromarray(cv2.cvtColor(out, cv2.COLOR_BGR2RGB))
+    draw = ImageDraw.Draw(pil)
+    for i, text in enumerate(lines):
+        draw.text((pad, h + pad + i * step), text, font=font, fill=(255, 255, 255))
+    return cv2.cvtColor(np.asarray(pil), cv2.COLOR_RGB2BGR)

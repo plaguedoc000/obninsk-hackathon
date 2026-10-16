@@ -15,7 +15,7 @@ from .detection import detect_marker
 from .errors import AppError, bad_input, not_found
 from .geometry import apply_transform, build_calibration, measure_polygon, shape_to_polygon
 from .imaging import encode
-from .standardize import annotate, plan_output, warp
+from .standardize import annotate, draw_caption, draw_outlines, fmt_num, plan_output, warp
 from .storage import Store, new_id, now_iso
 
 VERSION = "1.0.0"
@@ -281,6 +281,21 @@ def _select(store: Store, image_ids: list[str] | None, group: str | None) -> lis
     return store.list()
 
 
+def _common_target(metas: list[dict], px_per_mm: float | None = None) -> float:
+    """Общий масштаб для нескольких фото, пикселей на мм."""
+    if px_per_mm:
+        return round(float(px_per_mm), 4)
+    # по умолчанию — самый «мелкий» масштаб из выбранных: ничего не растягиваем, только уменьшаем
+    target = min(m["calibration"]["px_per_mm"] for m in metas)
+    # и следим, чтобы результат не был гигантским
+    for m in metas:
+        k = target / m["calibration"]["px_per_mm"]
+        side = max(m["width"], m["height"]) * k
+        if side > config.MAX_OUTPUT_SIDE:
+            target *= config.MAX_OUTPUT_SIDE / side
+    return round(target, 4)
+
+
 def compare(store: Store, image_ids: list[str] | None = None, group: str | None = None,
             px_per_mm: float | None = None, mode: str = "scale", grid: bool = True,
             annotate_flag: bool = True) -> dict:
@@ -293,18 +308,7 @@ def compare(store: Store, image_ids: list[str] | None = None, group: str | None 
                        {"filenames": missing})
     if mode not in ("scale", "rectify"):
         raise bad_input("BAD_MODE", "mode: допустимо 'scale' или 'rectify'")
-    if px_per_mm:
-        target = float(px_per_mm)
-    else:
-        # по умолчанию — самый «мелкий» масштаб из выбранных: ничего не растягиваем, только уменьшаем
-        target = min(m["calibration"]["px_per_mm"] for m in metas)
-        # и следим, чтобы результат не был гигантским
-        for m in metas:
-            k = target / m["calibration"]["px_per_mm"]
-            side = max(m["width"], m["height"]) * k
-            if side > config.MAX_OUTPUT_SIDE:
-                target *= config.MAX_OUTPUT_SIDE / side
-    target = round(target, 4)
+    target = _common_target(metas, px_per_mm)
     items = []
     for m in metas:
         cal = m["calibration"]
@@ -411,6 +415,50 @@ def to_csv(rows: list[dict], sep: str = ";", decimal: str = ",", tz_minutes: int
     for row in rows:
         wr.writerow([fmt(row[k], k) for k, _ in CSV_COLUMNS])
     return ("﻿" + buf.getvalue()).encode("utf-8")
+
+
+def _photo_date(meta: dict) -> str:
+    """Дата фото для подписи: последнее изменение области, а без областей — загрузка."""
+    times = [r.get("updated_at") or r["created_at"] for r in meta.get("measurements", [])]
+    return max(times, key=datetime.fromisoformat) if times else meta["created_at"]
+
+
+def export_files(store: Store, image_ids: list[str] | None = None, group: str | None = None,
+                 tz_minutes: int | None = None) -> tuple[bytes, str]:
+    """«Сохранить файлы»: фото в общем масштабе с контурами эталона и областей и подписью
+    «имя файла, площадь, дата» слева внизу, на полосе под фото. Одно фото — JPG, несколько — ZIP.
+    Фото без эталона пропускаются."""
+    metas = [m for m in _select(store, image_ids, group) if m.get("calibration")]
+    if not metas:
+        raise AppError("NOT_CALIBRATED", "Нет фото с эталоном — масштаб применить не к чему", 409)
+    target = _common_target(metas)
+    files: list[tuple[str, bytes]] = []
+    used: set[str] = set()
+    for m in metas:
+        cal = m["calibration"]
+        M, size, _ = plan_output(cal, (m["width"], m["height"]), target, "scale")
+        out = warp(store.load_bgr(m["id"]), M, size, "scale")
+        views = [measurement_view(m, r) for r in m.get("measurements", [])]
+        areas = [v["area_mm2"] for v in views if v["area_mm2"] is not None]
+        out = draw_outlines(out, M, cal, views)
+        out = draw_caption(out, [
+            m["filename"],
+            f"Площадь: {fmt_num(sum(areas), 1)} мм²" if areas else "Площадь: —",
+            _local_date(_photo_date(m), tz_minutes),
+        ])
+        stem = m["filename"].rsplit(".", 1)[0]
+        name, n = f"{stem}.jpg", 2
+        while name in used:
+            name, n = f"{stem}_{n}.jpg", n + 1
+        used.add(name)
+        files.append((name, encode(out, "jpg", quality=92)))
+    if len(files) == 1:
+        return files[0][1], "image/jpeg"
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for name, data in files:
+            z.writestr(name, data)
+    return buf.getvalue(), "application/zip"
 
 
 def export_zip(store: Store, image_ids: list[str] | None = None, group: str | None = None,

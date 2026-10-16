@@ -196,3 +196,45 @@ def test_autocontour_union_keeps_separate_parts():
     # первым идёт кусок, по которому щёлкнули
     first = np.array(b["contours_px"][0])
     assert np.allclose(first.mean(axis=0), b_obj.mean(axis=0), atol=15)
+
+
+def test_export_files_in_common_scale_with_outlines_and_caption():
+    """«Сохранить файлы»: фото в общем масштабе, контуры эталона и области, подпись слева внизу."""
+    a_img, a_m, a_obj = scene(6.0)
+    b_img, b_m, b_obj = scene(12.0, size=(2000, 1500))
+    a = upload("a.jpg", jpeg_bytes(a_img), group="files")
+    b = upload("b.jpg", jpeg_bytes(b_img), group="files")
+    for v, obj in ((a, a_obj), (b, b_obj)):
+        client.post(f"/api/images/{v['id']}/measurements", json={"points": obj.tolist()})
+    r = client.get("/api/export/files", params={"image_ids": f"{a['id']},{b['id']}", "tz": 180})
+    assert r.status_code == 200 and r.headers["content-type"] == "application/zip"
+    z = zipfile.ZipFile(io.BytesIO(r.content))
+    assert sorted(z.namelist()) == ["a.jpg", "b.jpg"]
+    imgs = {n: cv2.imdecode(np.frombuffer(z.read(n), np.uint8), cv2.IMREAD_COLOR) for n in z.namelist()}
+    # общий масштаб 6 px/мм: второе фото уменьшено вдвое, под фото добавлена полоса с подписью
+    assert imgs["a.jpg"].shape[1] == 1600 and imgs["a.jpg"].shape[0] > 1200
+    assert imgs["b.jpg"].shape[1] == 1000 and imgs["b.jpg"].shape[0] > 750
+    out = imgs["b.jpg"].astype(int)
+    k = 0.5  # пиксели исходного фото -> пиксели результата
+    # контур эталона синий (#5170FF), контур области красный (#E01E3C)
+    mx, my = np.round((b_m[0] + 0.5) * k - 0.5).astype(int)
+    patch = out[my - 3:my + 4, mx - 3:mx + 4].reshape(-1, 3)
+    assert any(p[0] > 200 and p[2] < 140 for p in patch)
+    ox, oy = np.round((b_obj[0] + 0.5) * k - 0.5).astype(int)
+    patch = out[oy - 3:oy + 4, ox - 3:ox + 4].reshape(-1, 3)
+    assert any(p[2] > 180 and p[0] < 110 for p in patch)
+    # полоса под фото тёмная, белый текст в ней слева, правая часть пустая; само фото не тронуто
+    strip = out[750:]
+    assert strip.mean() < 60
+    assert strip[:, :300].max() > 200 and strip[:, -200:].max() < 60
+    assert out[700:745, 900:990].mean() > 120
+    # одно фото — сразу JPG
+    one = client.get("/api/export/files", params={"image_ids": a["id"]})
+    assert one.headers["content-type"] == "image/jpeg"
+
+
+def test_export_files_needs_marker():
+    img, _, _ = scene(6.0)
+    v = upload("nomarker.jpg", jpeg_bytes(img), detect="false")
+    r = client.get("/api/export/files", params={"image_ids": v["id"]})
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "NOT_CALIBRATED"

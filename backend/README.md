@@ -28,7 +28,7 @@ uvicorn app.main:app --reload --port 8000
 Проверка: откройте **http://localhost:8000/api/docs** — там все адреса, их можно вызвать прямо из браузера
 (кнопка «Try it out»). Фото и результаты хранятся в папке `data/` рядом с кодом.
 
-Тесты: `pip install -r requirements-dev.txt && python -m pytest -q` (186 тестов, из них 48 — известные слабости `xfail`).
+Тесты: `pip install -r requirements-dev.txt && python -m pytest -q` (188 тестов, из них 48 — известные слабости `xfail`).
 
 **Сложные фото из Blender** (`tests/fixtures/blender/`, тесты — `tests/test_blender_scenes.py`): 25 отрендеренных сцен —
 наклон камеры до 60°, резкая тень, блик на эталоне, вспышка, шум и сжатие JPEG, размытие, коврик с сеткой 1 см,
@@ -86,6 +86,7 @@ uvicorn app.main:app --reload --port 8000
 | GET | `/api/images/{id}/standardized?px_per_mm=8&grid=true&annotate=true` | картинка в заданном масштабе |
 | POST | `/api/compare` | привести несколько фото к одному масштабу |
 | GET | `/api/export.csv?image_ids=a,b` или `?group=` | таблица для Excel (`;`, запятая в числах): файл, площадь мм² и см², периметр, масштаб, дата; `&tz=180` — дата по Москве |
+| GET | `/api/export/files?image_ids=a,b&tz=180` | «Сохранить файлы»: фото в общем масштабе, контуры эталона и областей, под фото подпись «имя, площадь, дата». Одно фото — JPG, несколько — ZIP |
 | GET | `/api/export.zip` | архив: CSV + отчёт JSON + фото в общем масштабе с сеткой 1 см |
 
 ### Статус фото (`status`)

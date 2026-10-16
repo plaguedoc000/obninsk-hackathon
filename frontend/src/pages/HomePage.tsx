@@ -220,6 +220,31 @@ export default function HomePage() {
     }
   }
 
+  // «Сохранить файлы»: фото в общем масштабе с контурами и подписью. Если масштаб уже приведён — только эти фото
+  async function saveFiles() {
+    const list = (normIds ? photos.filter((p) => normIds.includes(p.id)) : photos).filter((p) => p.serverId && p.status === 'ready')
+    const ready = list.filter((p) => p.marker)
+    if (!list.length) {
+      toast.error('Сначала добавьте фото')
+      return
+    }
+    if (!ready.length) {
+      toast.error('Нет фото с эталоном — масштаб применить не к чему. Отметьте эталон (E)')
+      return
+    }
+    const id = toast.loading(ready.length === 1 ? 'Готовим фото…' : `Готовим ${ready.length} фото в одном масштабе…`)
+    try {
+      await sync.flush()
+      const blob = await api.exportFiles(ready.map((p) => p.serverId!))
+      const stem = ready[0].name.replace(/\.[^.]+$/, '')
+      downloadBlob(blob.type.includes('zip') ? `фото-в-масштабе-${today()}.zip` : `${stem}-в-масштабе.jpg`, blob)
+      const skipped = list.length - ready.length
+      toast.success(`Сохранено фото: ${ready.length}${skipped ? `. Без эталона пропущено: ${skipped}` : ''}`, { id })
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Не удалось сохранить фото', { id })
+    }
+  }
+
   function pickFiles() {
     fileInput.current?.click()
   }
@@ -290,7 +315,7 @@ export default function HomePage() {
         addFiles(Array.from(e.dataTransfer.files))
       }}
     >
-      <AppHeader picking={picking} normalized={!!normIds} onScale={toggleScaleMode} onSave={saveReport} />
+      <AppHeader picking={picking} normalized={!!normIds} onScale={toggleScaleMode} onSaveCsv={saveReport} onSaveFiles={saveFiles} />
       <Shell panel={panel}>{view}</Shell>
 
       {dragOver && (

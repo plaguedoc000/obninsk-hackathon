@@ -310,6 +310,15 @@ def export_csv(image_ids: Optional[str] = Query(None, description="id через
                     headers={"Content-Disposition": 'attachment; filename="measurements.csv"'})
 
 
+@app.get("/api/export/files", tags=["Экспорт"], summary="Фото в общем масштабе с контурами и подписью (JPG или ZIP)")
+def export_files(image_ids: Optional[str] = Query(None, description="id через запятую; пусто — все"),
+                 group: Optional[str] = None,
+                 tz: Optional[int] = Query(None, ge=-840, le=840, description="Часовой пояс для даты: минуты от UTC (Москва — 180)")):
+    data, media = service.export_files(store, _ids(image_ids), group, tz)
+    name = "photo.jpg" if media == "image/jpeg" else "photos.zip"
+    return Response(data, media_type=media, headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
 @app.get("/api/export.zip", tags=["Экспорт"], summary="Архив: CSV + отчёт JSON + фото в общем масштабе")
 def export_zip(image_ids: Optional[str] = Query(None), group: Optional[str] = None,
                px_per_mm: Optional[float] = Query(None, gt=0), mode: Literal["scale", "rectify"] = "scale"):

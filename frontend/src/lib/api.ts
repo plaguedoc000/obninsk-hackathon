@@ -118,6 +118,9 @@ export const api = {
   // дата в таблице — по часам пользователя
   exportCsv: async (list: string[]) => (await send(`/export.csv?${ids(list)}&tz=${-new Date().getTimezoneOffset()}`)).blob(),
 
+  // «Сохранить файлы»: фото в общем масштабе с контурами и подписью. Одно фото — JPG, несколько — ZIP
+  exportFiles: async (list: string[]) => (await send(`/export/files?${ids(list)}&tz=${-new Date().getTimezoneOffset()}`)).blob(),
+
   // Архив: CSV, отчёт JSON и фото в общем масштабе с сеткой 1 см
   exportZip: async (list: string[]) => (await send(`/export.zip?${ids(list)}`)).blob(),
 }
