@@ -295,9 +295,12 @@ export default function HomePage() {
         photo={active}
         index={photos.indexOf(active)}
         count={photos.length}
+        canCompare={photos.filter((p) => p.marker).length >= 2}
         strip={strip}
         onChange={(fn) => updatePhoto(active.id, fn)}
         onRedetect={() => redetect(active)}
+        onCompare={toggleScaleMode}
+        onSave={saveReport}
       />
     )
   } else if (active) {
@@ -333,7 +336,7 @@ export default function HomePage() {
 
   return (
     <div
-      className={cn('lab-bg flex min-h-svh flex-col text-lab-text lg:h-svh lg:overflow-hidden', selecting && 'pt-28 lg:pt-0')}
+      className={cn('lab-bg flex min-h-svh flex-col text-lab-text lg:h-svh lg:overflow-hidden', selecting && 'pb-28 lg:pb-0')}
       onDragEnter={(e) => {
         if (!hasFiles(e)) return
         dragDepth.current++

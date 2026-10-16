@@ -8,9 +8,9 @@ import type { Photo } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
 type Props = {
-  photo: Photo
+  photo: Photo | null
   quality: Scale | null
-  cta?: { label: string; onClick: () => void; disabled?: boolean }
+  cta: { label: string; onClick: () => void; disabled?: boolean }
   hint: string
   selectedId?: string | null
   draftId?: string | null
@@ -18,36 +18,33 @@ type Props = {
   onDelete?: (id: string) => void
 }
 
-// Под фото: площадь крупно и показатели, кнопка следующего шага с подсказкой, предупреждения и список областей
+// Верх правой панели: результат крупно, показатели, кнопка следующего шага, подсказка, области
 export default function ResultPanel({ photo, quality: q, cta, hint, selectedId, draftId, onSelect, onDelete }: Props) {
-  const marker = photo.marker
-  const totals = totalsOf(photo)
-  const measured = !!(totals.count && marker)
-  const source = photo.markerSource === 'auto' ? 'найден сам' : photo.markerSource === 'manual' ? 'вручную' : 'не найден'
+  const marker = photo?.marker ?? null
+  const totals = photo ? totalsOf(photo) : null
+  const measured = !!(totals?.count && marker)
+  const source = photo?.markerSource === 'auto' ? 'найден сам' : photo?.markerSource === 'manual' ? 'вручную' : 'не найден'
   // предупреждения сервера об эталоне и об областях; пока его ответа нет — быстрые проверки в браузере
-  const warnings = q?.fromServer ? [...q.warnings, ...totals.warnings] : []
+  const warnings = q?.fromServer ? [...q.warnings, ...(totals?.warnings ?? [])] : []
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="grid gap-x-10 gap-y-4 border border-lab-sky/20 bg-lab-bg/60 p-4 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center lg:px-6">
-        <div className="flex flex-col gap-2">
-          <PanelLabel>ПЛОЩАДЬ</PanelLabel>
-          <BigValue value={measured ? fmt(totals.mm2, 1) : '—'} unit="мм²" />
-        </div>
-        <div className="grid gap-x-8 gap-y-2 border-t border-lab-sky/20 pt-3 sm:border-t-0 sm:border-l sm:pt-0 sm:pl-8 md:grid-cols-2">
-          <StatRow label="Периметр" value={measured ? `${fmt(totals.perimeterMm, 1)} мм` : '—'} />
-          <StatRow label="Масштаб" value={q ? `${fmt(q.ppm, 2)} px/мм` : '—'} />
-          <StatRow label="Погрешность" value={measured ? `±${fmt(totals.errorPct, 1)} %` : '—'} />
-          <StatRow label="Эталон" value={<span className={cn(!marker && 'text-lab-red')}>{source}</span>} />
-        </div>
+    <>
+      <div className="flex flex-col gap-2.5">
+        <PanelLabel>РЕЗУЛЬТАТ</PanelLabel>
+        <BigValue value={measured ? fmt(totals!.mm2, 1) : '—'} unit="мм²" />
+        <StatRow first label="Периметр" value={measured ? `${fmt(totals!.perimeterMm, 1)} мм` : '—'} />
+        <StatRow label="Масштаб" value={q ? `${fmt(q.ppm, 2)} px/мм` : '—'} />
+        <StatRow label="Погрешность" value={measured ? `±${fmt(totals!.errorPct, 1)} %` : '—'} />
+        <StatRow
+          label="Эталон"
+          value={<span className={cn(!marker && photo && 'text-lab-red')}>{photo ? source : '—'}</span>}
+        />
       </div>
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-5">
-        {cta && <CtaButton {...cta} className="sm:w-auto sm:min-w-[260px]" />}
-        <p className="text-[13px] leading-normal text-lab-text/60">{hint}</p>
-      </div>
+      <CtaButton {...cta} />
+      <p className="text-[13px] leading-normal text-lab-text/60">{hint}</p>
 
-      {!marker && photo.status === 'ready' && (
+      {photo && !marker && photo.status === 'ready' && (
         <Note tone="red">Без эталона площадь в мм² не посчитать. Выберите «Эталон» и поставьте рамку на квадрат 1×1 см.</Note>
       )}
       {q?.fromServer ? (
@@ -61,10 +58,10 @@ export default function ResultPanel({ photo, quality: q, cta, hint, selectedId, 
         </>
       )}
 
-      {photo.areas.length > 0 && (
+      {photo && photo.areas.length > 0 && (
         <div className="flex flex-col gap-2">
           <PanelLabel>ОБЛАСТИ · {photo.areas.length}</PanelLabel>
-          <ul className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
+          <ul className="flex flex-col gap-1.5">
             {photo.areas.map((area, i) => (
               <li
                 key={area.id}
@@ -85,7 +82,9 @@ export default function ResultPanel({ photo, quality: q, cta, hint, selectedId, 
                       <span className="text-lab-text/50"> · рисуется, {area.points.length} т.</span>
                     )}
                   </span>
-                  <span className="text-lab-text/80">{area.closed && marker ? `${fmt(areaOf(photo, area)!.mm2, 1)} мм²` : '—'}</span>
+                  <span className="text-lab-text/80">
+                    {area.closed && photo && marker ? `${fmt(areaOf(photo, area)!.mm2, 1)} мм²` : '—'}
+                  </span>
                 </button>
                 <button
                   type="button"
@@ -100,7 +99,7 @@ export default function ResultPanel({ photo, quality: q, cta, hint, selectedId, 
           </ul>
         </div>
       )}
-    </div>
+    </>
   )
 }
 

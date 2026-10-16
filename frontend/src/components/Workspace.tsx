@@ -1,7 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
-// Каркас «Лаборатории»: слева панель инструментов, в центре фото и результат под ним, справа только список фото.
+// Каркас «Лаборатории»: слева панель инструментов, в центре фото, справа результат и список фото.
 // На телефоне всё идёт столбиком, а инструменты становятся строкой над фото
 export default function Workspace({ rail, panel, children }: { rail: ReactNode; panel: ReactNode; children: ReactNode }) {
   return (
@@ -12,15 +12,13 @@ export default function Workspace({ rail, panel, children }: { rail: ReactNode; 
       >
         {rail}
       </nav>
-      <section className="flex min-w-0 flex-col gap-4 p-4 lg:overflow-y-auto lg:p-7">
-        {children}
+      <section className="flex min-w-0 flex-col gap-4 p-4 lg:overflow-y-auto lg:p-7">{children}</section>
+      <aside className="flex min-h-0 flex-col gap-[22px] border-t border-lab-sky/20 bg-lab-bg/60 p-4 lg:overflow-y-auto lg:border-t-0 lg:border-l lg:p-7">
+        {panel}
         <p className="mt-auto pt-2 font-mono text-[11px] leading-relaxed text-lab-text/40">
           Учебный прототип: не подтверждает метрологическую точность и не заменяет лабораторное ПО. Эталон должен лежать
           в одной плоскости с образцом.
         </p>
-      </section>
-      <aside className="flex min-h-0 flex-col border-t border-lab-sky/20 bg-lab-bg/60 p-4 lg:overflow-y-auto lg:border-t-0 lg:border-l lg:p-7">
-        {panel}
       </aside>
     </div>
   )
@@ -87,16 +85,13 @@ export function PanelLabel({ children, className }: { children: ReactNode; class
 }
 
 // Большая красная кнопка следующего шага
-export function CtaButton({ label, onClick, disabled, className }: { label: string; onClick: () => void; disabled?: boolean; className?: string }) {
+export function CtaButton({ label, onClick, disabled }: { label: string; onClick: () => void; disabled?: boolean }) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={cn(
-        'flex h-14 w-full shrink-0 items-center justify-center bg-lab-red px-6 font-mono text-sm font-semibold tracking-[.14em] text-white shadow-[0_0_32px_rgba(224,30,60,.45)] transition-[filter,opacity] outline-none hover:brightness-110 focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none',
-        className,
-      )}
+      className="flex h-14 w-full shrink-0 items-center justify-center bg-lab-red px-4 font-mono text-sm font-semibold tracking-[.14em] text-white shadow-[0_0_32px_rgba(224,30,60,.45)] transition-[filter,opacity] outline-none hover:brightness-110 focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
     >
       {label} →
     </button>

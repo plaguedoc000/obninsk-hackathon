@@ -18,7 +18,7 @@ export default function AppHeader({ selecting, onSave, onScale }: Props) {
         <p className="hidden font-mono text-[13px] text-lab-text/55 xl:block">площадь по фото · эталон 1×1 см</p>
       </div>
 
-      <nav className="flex gap-2.5">
+      <nav className="flex gap-2">
         <HeaderButton onClick={onSave} title="Сохранить отчёт в CSV для Excel">
           СОХРАНИТЬ
         </HeaderButton>
@@ -38,7 +38,7 @@ function HeaderButton({ children, onClick, active, title }: { children: ReactNod
       title={title}
       aria-pressed={active}
       className={cn(
-        'flex h-11 items-center border-2 px-5 font-mono text-sm font-semibold tracking-[.08em] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-lab-blue sm:h-12 sm:px-7 sm:text-[15px]',
+        'flex h-[38px] items-center border px-4 font-mono text-[13px] font-medium tracking-[.06em] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-lab-blue',
         active ? 'border-lab-red bg-lab-red/20 text-white' : 'border-lab-sky/40 hover:bg-lab-blue/15',
       )}
     >
