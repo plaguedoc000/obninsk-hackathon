@@ -4,11 +4,11 @@ version = "0.1.0"
 requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.143.2",
-    "gigachat>=0.2.3",
-    "openai>=3.31.0",
-    "python-dotenv>=1.2.4",
+    "numpy>=1.26",
+    "opencv-python-headless>=4.8",
+    "pillow>=10.1",
+    "pillow-heif>=0.16",
     "python-multipart>=0.0.32",
-    "sqlmodel>=0.0.48",
     "uvicorn[standard]>=0.54.0",
 ]
 

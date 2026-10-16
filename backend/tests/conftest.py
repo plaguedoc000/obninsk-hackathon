@@ -1,17 +1,8 @@
 import os
+import sys
 import tempfile
+from pathlib import Path
 
-import pytest
-from fastapi.testclient import TestClient
-
-# Тесты работают с временной базой и без нейросети
-os.environ["DATA_DIR"] = tempfile.mkdtemp()
-os.environ["LLM_PROVIDER"] = ""
-
-from app.main import app  # noqa: E402
-
-
-@pytest.fixture
-def client():
-    with TestClient(app) as c:
-        yield c
+# отдельная папка данных для тестов — до импорта приложения
+os.environ.setdefault("ONESCALE_DATA_DIR", tempfile.mkdtemp(prefix="onescale_test_"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))

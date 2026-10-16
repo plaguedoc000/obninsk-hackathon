@@ -1,0 +1,8 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9
+numpy>=1.26
+opencv-python-headless>=4.8
+pillow>=10.1
+# фото с iPhone (HEIC). Если не ставится — удалите строку, всё остальное работает.
+pillow-heif>=0.16
