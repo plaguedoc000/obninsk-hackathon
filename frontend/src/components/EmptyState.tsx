@@ -1,85 +1,68 @@
 import type { ReactNode } from 'react'
-import { FolderOpen, Images, Plus } from 'lucide-react'
-import ResultPanel from '@/components/ResultPanel'
-import Workspace, { AreaIcon, HudFrame, MarkerIcon, RailButton } from '@/components/Workspace'
+import Workspace, { AreaRow, Scan, StageFrame, StageTitle, ToolRail } from '@/components/Workspace'
+import type { Photo } from '@/lib/types'
 
-type Props = { strip: ReactNode; onPick: () => void; onPickFolder: () => void; onDemo: () => void; loadingDemo: boolean }
+type Props = { panel: ReactNode; onPick: () => void; onBack?: () => void }
 
-const STEPS = [
-  { n: '-01.', title: 'Загрузите фото', text: 'Рядом с образцом — квадрат 1×1 см в той же плоскости. Снимайте сверху.' },
-  { n: '-02.', title: 'Проверьте эталон', text: 'Сайт сам найдёт квадрат. Если рамка легла неточно — подвиньте уголки.' },
-  { n: '-03.', title: 'Измерьте и сравните', text: 'Обведите область — площадь в мм². «Масштаб» покажет фото в одном масштабе.' },
-]
-
-export default function EmptyState({ strip, onPick, onPickFolder, onDemo, loadingDemo }: Props) {
+// Экран «новое фото»: подсказка, как снимать, и выбор файла. Инструменты пока бледные
+export default function EmptyState({ panel, onPick, onBack }: Props) {
   return (
-    <Workspace
-      rail={
-        <>
-          <RailButton label="ЭТАЛОН" icon={<MarkerIcon />} onClick={() => {}} disabled />
-          <RailButton label="ОБЛАСТЬ" icon={<AreaIcon />} onClick={() => {}} disabled />
-        </>
-      }
-      panel={
-        <>
-          <ResultPanel
-            photo={null}
-            quality={null}
-            cta={{ label: 'ВЫБРАТЬ ФОТО', onClick: onPick }}
-            hint="Загрузите фото с квадратом-эталоном 1×1 см или попробуйте готовые примеры. Фото уходят на наш сервер: он сам находит эталон и считает площадь с оценкой погрешности."
-          />
-          {strip}
-        </>
-      }
-    >
-      <div className="flex justify-between gap-3 font-mono text-[13px] text-lab-text/70">
-        <span>НЕТ ФОТО</span>
-        <span>0 / 0</span>
-      </div>
+    <Workspace rail={<ToolRail disabled />} panel={panel}>
+      <StageTitle name="новое фото" />
+      <StageFrame>
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-[26px] p-6 text-center">
+          {/* перекрестие, пунктирный круг — участок и белый квадрат — эталон */}
+          <div className="relative size-[180px] shrink-0" aria-hidden="true">
+            <div className="absolute top-0 left-[89px] h-[180px] w-0.5 bg-lab-sky/50" />
+            <div className="absolute top-[89px] left-0 h-0.5 w-[180px] bg-lab-sky/50" />
+            <div className="absolute top-10 left-10 size-[100px] rounded-full border-2 border-dashed border-lab-red" />
+            <div className="absolute top-[132px] left-3 size-[30px] bg-lab-text shadow-[0_0_16px_rgba(81,112,255,.6)]" />
+          </div>
+          <div className="flex flex-col items-center gap-2">
+            <h2 className="font-display text-lg font-medium tracking-[.06em]">Положите эталон 1×1 см рядом с участком</h2>
+            <p className="max-w-[460px] text-[15px] leading-normal text-lab-text/62">
+              Снимайте строго сверху, при ровном свете. Эталон и участок должны быть в одной плоскости.
+            </p>
+          </div>
+          <div className="flex flex-wrap justify-center gap-2.5 font-mono text-xs font-semibold tracking-[.1em]">
+            <button
+              type="button"
+              onClick={onPick}
+              className="flex h-11 items-center bg-lab-red px-[22px] text-white shadow-[0_0_24px_rgba(224,30,60,.5)] outline-none hover:brightness-110 focus-visible:ring-2 focus-visible:ring-white"
+            >
+              ВЫБРАТЬ ФАЙЛ
+            </button>
+            {onBack && (
+              <button
+                type="button"
+                onClick={onBack}
+                className="flex h-11 items-center border border-lab-sky/45 px-[22px] outline-none hover:bg-lab-blue/15 focus-visible:ring-2 focus-visible:ring-lab-blue"
+              >
+                НАЗАД К ФОТО
+              </button>
+            )}
+          </div>
+        </div>
+      </StageFrame>
+      <AreaRow value="—" />
+    </Workspace>
+  )
+}
 
-      <HudFrame>
-        <button
-          type="button"
-          onClick={onPick}
-          className="group flex min-h-[46svh] w-full flex-col items-center justify-center gap-4 border border-dashed border-lab-sky/35 bg-white/[0.02] p-6 text-center outline-none transition-colors hover:border-lab-sky/70 hover:bg-lab-blue/[0.06] focus-visible:ring-2 focus-visible:ring-lab-blue"
-        >
-          <span className="flex size-16 items-center justify-center border-2 border-lab-blue transition-transform group-hover:scale-105">
-            <Plus className="size-7 text-lab-red" />
-          </span>
-          <span className="font-display text-xl font-medium tracking-[.12em] sm:text-2xl">ВЫБРАТЬ ФОТО</span>
-          <span className="max-w-sm text-sm text-lab-text/60">Или перетащите сюда, можно сразу несколько.</span>
-        </button>
-      </HudFrame>
-
-      <div className="flex flex-wrap gap-2 font-mono text-[13px] tracking-[.06em]">
-        <button
-          type="button"
-          onClick={onDemo}
-          disabled={loadingDemo}
-          className="flex h-[38px] items-center gap-2 border border-lab-red bg-lab-red/15 px-4 transition-colors hover:bg-lab-red/30 disabled:opacity-50"
-        >
-          <Images className="size-4" />
-          ПОПРОБОВАТЬ НА ПРИМЕРАХ
-        </button>
-        <button
-          type="button"
-          onClick={onPickFolder}
-          className="flex h-[38px] items-center gap-2 border border-lab-sky/40 px-4 transition-colors hover:bg-lab-blue/15"
-        >
-          <FolderOpen className="size-4" />
-          ВЫБРАТЬ ПАПКУ
-        </button>
-      </div>
-
-      <ol className="grid gap-px border border-lab-sky/20 bg-lab-sky/20 sm:grid-cols-3">
-        {STEPS.map(({ n, title, text }) => (
-          <li key={n} className="flex flex-col gap-1.5 bg-lab-bg p-4">
-            <span className="font-mono text-2xl font-semibold text-lab-red">{n}</span>
-            <span className="font-semibold">{title}</span>
-            <span className="text-sm text-lab-text/60">{text}</span>
-          </li>
-        ))}
-      </ol>
+// Фото загружается: сервер ищет эталон, по фото бежит красная полоса
+export function LoadingState({ photo, panel }: { photo: Photo; panel: ReactNode }) {
+  return (
+    <Workspace rail={<ToolRail disabled />} panel={panel}>
+      <StageTitle name={photo.name} />
+      <StageFrame>
+        <div className="absolute inset-x-6 inset-y-[30px] flex items-center justify-center">
+          <div className="relative max-h-full max-w-full shadow-[0_20px_60px_rgba(0,0,0,.6)]">
+            <img src={photo.url} alt={photo.name} className="block max-h-[calc(62svh-60px)] max-w-full object-contain lg:max-h-[calc(100svh-260px)]" />
+            <Scan />
+          </div>
+        </div>
+      </StageFrame>
+      <AreaRow value="—" />
     </Workspace>
   )
 }

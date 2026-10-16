@@ -107,6 +107,13 @@ export const api = {
 
   deleteArea: (id: string, mid: string) => send(`/images/${id}/measurements/${mid}`, { method: 'DELETE' }),
 
+  // «Волшебная палочка»: щелчок внутри объекта — сервер находит его контур
+  autocontour: (id: string, point: { x: number; y: number }) =>
+    request<{ points_px: [number, number][]; warnings: ApiWarning[] }>(`/images/${id}/autocontour`, {
+      method: 'POST',
+      body: JSON.stringify({ point: [point.x, point.y] }),
+    }),
+
   exportCsv: async (list: string[]) => (await send(`/export.csv?${ids(list)}`)).blob(),
 
   // Архив: CSV, отчёт JSON и фото в общем масштабе с сеткой 1 см

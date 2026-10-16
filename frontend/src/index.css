@@ -151,9 +151,24 @@ html { color-scheme: dark; }
 @utility lab-bg {
     background-color: var(--color-lab-bg);
     background-image:
-        linear-gradient(90deg, rgb(0 74 173 / .38), rgb(4 5 15 / 0) 38%, rgb(4 5 15 / 0) 62%, rgb(224 30 60 / .32)),
-        linear-gradient(rgb(100 149 237 / .07) 1px, transparent 1px),
-        linear-gradient(90deg, rgb(100 149 237 / .07) 1px, transparent 1px);
+        linear-gradient(90deg, rgb(0 74 173 / .36), rgb(4 5 15 / 0) 34%, rgb(4 5 15 / 0) 66%, rgb(224 30 60 / .28)),
+        linear-gradient(rgb(100 149 237 / .06) 1px, transparent 1px),
+        linear-gradient(90deg, rgb(100 149 237 / .06) 1px, transparent 1px);
     background-size: 100% 100%, 32px 32px, 32px 32px;
     background-attachment: fixed;
+}
+
+/* Сетка 24 px внутри рамки с фото */
+@utility lab-stage {
+    background-color: #070918;
+    background-image:
+        linear-gradient(rgb(100 149 237 / .09) 1px, transparent 1px),
+        linear-gradient(90deg, rgb(100 149 237 / .09) 1px, transparent 1px);
+    background-size: 24px 24px;
+}
+
+/* Красная полоса «сканирования», пока фото обрабатывается */
+@keyframes om-scan {
+    from { top: -90px; }
+    to { top: 100%; }
 }

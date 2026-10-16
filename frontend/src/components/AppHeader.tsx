@@ -1,48 +1,52 @@
-import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
 type Props = {
-  selecting: boolean
-  onSave: () => void
+  picking: boolean
+  normalized: boolean
   onScale: () => void
+  onSave: () => void
 }
 
-export default function AppHeader({ selecting, onSave, onScale }: Props) {
+// Шапка: логотип и две кнопки — «Привести к масштабу» и «Сохранить» (отчёт CSV)
+export default function AppHeader({ picking, normalized, onScale, onSave }: Props) {
   return (
-    <header className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b border-lab-sky/20 bg-lab-bg/70 px-4 py-3 backdrop-blur lg:h-[72px] lg:px-8 lg:py-0">
+    <header className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2.5 border-b border-lab-sky/20 px-4 py-3 lg:h-16 lg:px-7 lg:py-0">
       <div className="flex min-w-0 items-center gap-[18px]">
-        <span className="flex size-9 shrink-0 items-center justify-center border-2 border-lab-blue" aria-hidden="true">
-          <span className="size-3.5 bg-lab-red" />
+        <span
+          className="flex size-[34px] shrink-0 items-center justify-center border-2 border-lab-blue shadow-[0_0_16px_rgba(81,112,255,.4)]"
+          aria-hidden="true"
+        >
+          <span className="size-3 bg-lab-red" />
         </span>
-        <h1 className="font-display text-[15px] font-medium tracking-[.14em] whitespace-nowrap sm:text-lg">ОДИН МАСШТАБ</h1>
-        <p className="hidden font-mono text-[13px] text-lab-text/55 xl:block">площадь по фото · эталон 1×1 см</p>
+        <h1 className="font-display text-[15px] font-medium tracking-[.14em] whitespace-nowrap sm:text-[17px]">ОДИН МАСШТАБ</h1>
       </div>
 
-      <nav className="flex gap-2">
-        <HeaderButton onClick={onSave} title="Сохранить отчёт в CSV для Excel">
+      <nav className="flex gap-2 font-mono text-xs font-medium tracking-[.08em]">
+        <button
+          type="button"
+          onClick={onScale}
+          aria-pressed={picking}
+          title="Выберите фото и приведите их к одному масштабу по эталону (C)"
+          className={cn(
+            'flex h-9 items-center gap-2 border border-lab-blue px-4 shadow-[0_0_16px_rgba(81,112,255,.3)] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-white',
+            picking || normalized ? 'bg-lab-blue' : 'bg-lab-blue/12 hover:bg-lab-blue/25',
+          )}
+        >
+          <span
+            className="size-3 shrink-0 rounded-full border-2 border-lab-sky"
+            style={{ background: 'linear-gradient(90deg,#5170FF 50%,transparent 50%)' }}
+          />
+          {normalized ? 'МАСШТАБ ПРИВЕДЁН ✓' : 'ПРИВЕСТИ К МАСШТАБУ'}
+        </button>
+        <button
+          type="button"
+          onClick={onSave}
+          title="Сохранить отчёт в CSV для Excel"
+          className="flex h-9 items-center border border-lab-sky/40 px-4 transition-colors outline-none hover:bg-lab-blue/15 focus-visible:ring-2 focus-visible:ring-lab-blue"
+        >
           СОХРАНИТЬ
-        </HeaderButton>
-        <HeaderButton onClick={onScale} active={selecting} title="Сравнить фото в одном масштабе">
-          МАСШТАБ
-        </HeaderButton>
+        </button>
       </nav>
     </header>
-  )
-}
-
-function HeaderButton({ children, onClick, active, title }: { children: ReactNode; onClick: () => void; active?: boolean; title?: string }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={title}
-      aria-pressed={active}
-      className={cn(
-        'flex h-[38px] items-center border px-4 font-mono text-[13px] font-medium tracking-[.06em] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-lab-blue',
-        active ? 'border-lab-red bg-lab-red/20 text-white' : 'border-lab-sky/40 hover:bg-lab-blue/15',
-      )}
-    >
-      {children}
-    </button>
   )
 }

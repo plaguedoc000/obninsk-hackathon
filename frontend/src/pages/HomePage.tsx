@@ -1,37 +1,34 @@
 import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react'
-import { ImagePlus, Loader2 } from 'lucide-react'
+import { ImagePlus } from 'lucide-react'
 import { toast } from 'sonner'
 import AppHeader from '@/components/AppHeader'
-import CompareView from '@/components/CompareView'
 import Editor from '@/components/Editor'
-import EmptyState from '@/components/EmptyState'
+import EmptyState, { LoadingState } from '@/components/EmptyState'
 import PhotoList from '@/components/PhotoList'
-import Workspace, { AreaIcon, HudFrame, MarkerIcon, RailButton } from '@/components/Workspace'
 import { api } from '@/lib/api'
-import { makeDemoFiles } from '@/lib/demo'
 import { today } from '@/lib/format'
+import { scaleOf } from '@/lib/measure'
 import { createPhoto, isImageFile, photoFromServer, scaleFromServer, workspaceId } from '@/lib/photos'
 import { downloadBlob } from '@/lib/report'
 import type { Photo } from '@/lib/types'
 import { useServerSync } from '@/lib/useServerSync'
-import { cn } from '@/lib/utils'
 
 type Patch = Partial<Photo> | ((p: Photo) => Partial<Photo>)
 
 export default function HomePage() {
   const [photos, setPhotos] = useState<Photo[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
-  const [selecting, setSelecting] = useState(false)
-  const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [compareIds, setCompareIds] = useState<string[] | null>(null)
+  // «Привести к масштабу»: picking — идёт выбор фото, picked — выбранные по порядку, normIds — уже приведённые
+  const [picking, setPicking] = useState(false)
+  const [picked, setPicked] = useState<string[]>([])
+  const [normIds, setNormIds] = useState<string[] | null>(null)
+  // экран «новое фото» после «+ Добавить фото»
+  const [adding, setAdding] = useState(false)
   const [dragOver, setDragOver] = useState(false)
-  const [loadingDemo, setLoadingDemo] = useState(false)
   const dragDepth = useRef(0)
   const fileInput = useRef<HTMLInputElement>(null)
-  const folderInput = useRef<HTMLInputElement>(null)
 
   const active = photos.find((p) => p.id === activeId) ?? photos[0] ?? null
-  const comparePhotos = compareIds ? photos.filter((p) => compareIds.includes(p.id) && p.marker) : []
 
   const updatePhoto = useCallback((id: string, patch: Patch) => {
     setPhotos((prev) => prev.map((p) => (p.id === id ? { ...p, ...(typeof patch === 'function' ? patch(p) : patch) } : p)))
@@ -69,8 +66,8 @@ export default function HomePage() {
       const created = images.map(createPhoto)
       setPhotos((prev) => [...prev, ...created])
       setActiveId(created[0].id)
-      setCompareIds(null)
-      setSelecting(false)
+      setAdding(false)
+      setPicking(false)
 
       const failed: string[] = []
       let missing = 0
@@ -119,37 +116,21 @@ export default function HomePage() {
     return () => window.removeEventListener('paste', onPaste)
   }, [addFiles])
 
+  // C — выбрать фото для приведения к масштабу, Esc — отменить выбор
   useEffect(() => {
-    if (!selecting) return
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setSelecting(false)
+    function onKey(e: KeyboardEvent) {
+      if ((e.target as HTMLElement | null)?.closest?.('input, textarea, select, [contenteditable="true"]')) return
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      const key = e.key.toLowerCase()
+      if (key === 'escape' && picking) setPicking(false)
+      else if ((key === 'c' || key === 'с') && photos.length) {
+        e.preventDefault()
+        toggleScaleMode()
+      }
+    }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [selecting])
-
-  async function loadDemo() {
-    setLoadingDemo(true)
-    try {
-      await addFiles(await makeDemoFiles())
-    } finally {
-      setLoadingDemo(false)
-    }
-  }
-
-  function redetect(photo: Photo) {
-    const serverId = photo.serverId
-    if (!serverId) return
-    sync.run(photo.id, async () => {
-      const image = await api.detect(serverId)
-      if (!image.detection?.found || !image.calibration) {
-        toast.error('Квадрат не найден. Поставьте эталон вручную')
-        return
-      }
-      // поиск сам калибрует масштаб по найденному квадрату
-      sync.applyImage(photo.id, image)
-      updatePhoto(photo.id, { markerSource: 'auto' })
-      toast.success('Эталон найден')
-    })
-  }
+  })
 
   function removePhoto(id: string) {
     const index = photos.findIndex((p) => p.id === id)
@@ -158,9 +139,10 @@ export default function HomePage() {
     const rest = photos.filter((p) => p.id !== id)
     setPhotos(rest)
     if (active?.id === id) setActiveId(rest[Math.min(index, rest.length - 1)]?.id ?? null)
-    if (compareIds?.includes(id)) {
-      const left = compareIds.filter((x) => x !== id)
-      setCompareIds(left.length >= 2 ? left : null)
+    setPicked((prev) => prev.filter((x) => x !== id))
+    if (normIds?.includes(id)) {
+      const left = normIds.filter((x) => x !== id)
+      setNormIds(left.length >= 2 ? left : null)
     }
     // с сервера удаляем, только когда кнопка «Вернуть» исчезла
     let undone = false
@@ -187,156 +169,118 @@ export default function HomePage() {
   }
 
   function toggleScaleMode() {
-    if (selecting) {
-      setSelecting(false)
+    if (picking) {
+      setPicking(false)
       return
     }
-    if (photos.filter((p) => p.marker).length < 2) {
-      toast.error('Нужно хотя бы два фото с эталоном, чтобы сравнить их')
-      return
-    }
-    setSelected(new Set(compareIds ?? []))
-    setSelecting(true)
+    setPicked(normIds ?? [])
+    setPicking(true)
+    setAdding(false)
   }
 
-  function toggleSelected(photo: Photo) {
+  function togglePick(photo: Photo) {
     if (photo.status === 'loading') {
       toast.info('Фото ещё обрабатывается, подождите секунду')
       return
     }
     if (!photo.marker) {
-      toast.error('На этом фото нет эталона. Откройте его и поставьте эталон вручную')
+      toast.error('На этом фото нет эталона. Откройте его и отметьте эталон (E)')
       return
     }
-    setSelected((prev) => {
-      const next = new Set(prev)
-      if (next.has(photo.id)) next.delete(photo.id)
-      else next.add(photo.id)
-      return next
-    })
+    setPicked((prev) => (prev.includes(photo.id) ? prev.filter((x) => x !== photo.id) : [...prev, photo.id]))
   }
 
-  function confirmSelection() {
-    if (selected.size < 2) {
-      toast.error(selected.size === 0 ? 'Отметьте два фото или больше' : 'Отметьте ещё хотя бы одно фото')
-      return
-    }
-    setCompareIds(photos.filter((p) => selected.has(p.id)).map((p) => p.id))
-    setSelecting(false)
+  function applyScale() {
+    if (picked.length < 2) return
+    setNormIds(picked)
+    setPicking(false)
+  }
+
+  function resetScale() {
+    setNormIds(null)
+    setPicked([])
+    setPicking(false)
   }
 
   // Отчёт собирает сервер: дожидаемся, пока туда дойдут последние правки
-  async function download(kind: 'csv' | 'zip', list: Photo[]) {
-    const ids = list.filter((p) => p.serverId && p.status === 'ready').map((p) => p.serverId!)
+  async function saveReport() {
+    const ids = photos.filter((p) => p.serverId && p.status === 'ready').map((p) => p.serverId!)
     if (!ids.length) {
       toast.error('Сначала добавьте фото')
       return
     }
-    if (!list.some((p) => p.areas.some((a) => a.closed))) {
+    if (!photos.some((p) => p.areas.some((a) => a.closed))) {
       toast.error('Обведите хотя бы одну область: в отчёт попадают измерения')
       return
     }
     try {
       await sync.flush()
-      if (kind === 'csv') downloadBlob(`отчёт-площадь-${today()}.csv`, await api.exportCsv(ids))
-      else downloadBlob(`отчёт-масштаб-${today()}.zip`, await api.exportZip(ids))
-      toast.success(kind === 'csv' ? 'Отчёт сохранён в CSV' : 'Архив с фото в общем масштабе сохранён')
+      downloadBlob(`отчёт-площадь-${today()}.csv`, await api.exportCsv(ids))
+      toast.success('Отчёт сохранён в CSV')
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Не удалось собрать отчёт')
     }
   }
 
-  const saveReport = () => download('csv', photos)
-
   function pickFiles() {
-    if (!selecting) fileInput.current?.click()
+    fileInput.current?.click()
   }
 
   const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes('Files')
 
   // Список фото в правой панели — один и тот же на всех экранах
-  const strip = (
+  const panel = (
     <PhotoList
       photos={photos}
-      highlightIds={compareIds ?? (active ? [active.id] : [])}
-      selecting={selecting}
-      selected={selected}
+      activeId={adding ? null : (active?.id ?? null)}
+      picking={picking}
+      picked={picked}
+      normIds={normIds}
       onOpen={(id) => {
         setActiveId(id)
-        setCompareIds(null)
+        setAdding(false)
       }}
-      onToggle={toggleSelected}
-      onSelectAll={() => {
-        const ready = photos.filter((p) => p.marker).map((p) => p.id)
-        const all = ready.every((id) => selected.has(id))
-        setSelected(new Set(all ? [] : ready))
-      }}
+      onToggle={togglePick}
       onRemove={removePhoto}
-      onAdd={pickFiles}
-      onConfirm={confirmSelection}
-      onCancel={() => setSelecting(false)}
+      onAdd={() => {
+        setAdding(true)
+        setPicking(false)
+      }}
+      onApply={applyScale}
+      onReset={resetScale}
+      onCancel={() => setPicking(false)}
     />
   )
 
+  // Приведённое фото показываем в общем масштабе со всеми приведёнными
+  const normPhotos = normIds ? photos.filter((p) => normIds.includes(p.id) && p.marker && p.width) : []
+  const activeScale = active ? scaleOf(active) : null
+  const norm =
+    active && activeScale && normPhotos.length >= 2 && normPhotos.includes(active)
+      ? { list: normPhotos.map((p) => ({ width: p.width, height: p.height, ppm: scaleOf(p)!.ppm })), ppm: activeScale.ppm }
+      : null
+
   let view
-  if (comparePhotos.length >= 2) {
-    view = (
-      <CompareView
-        photos={comparePhotos}
-        strip={strip}
-        onClose={() => setCompareIds(null)}
-        onZip={() => download('zip', comparePhotos)}
-      />
-    )
-  } else if (active?.status === 'ready') {
+  if (adding || !active) {
+    view = <EmptyState panel={panel} onPick={pickFiles} onBack={active ? () => setAdding(false) : undefined} />
+  } else if (active.status === 'ready') {
     view = (
       <Editor
         key={active.id}
         photo={active}
-        index={photos.indexOf(active)}
-        count={photos.length}
-        canCompare={photos.filter((p) => p.marker).length >= 2}
-        strip={strip}
+        panel={panel}
+        norm={norm}
+        picking={picking}
         onChange={(fn) => updatePhoto(active.id, fn)}
-        onRedetect={() => redetect(active)}
-        onCompare={toggleScaleMode}
-        onSave={saveReport}
       />
-    )
-  } else if (active) {
-    view = (
-      <Workspace
-        rail={
-          <>
-            <RailButton label="ЭТАЛОН" icon={<MarkerIcon />} onClick={() => {}} disabled />
-            <RailButton label="ОБЛАСТЬ" icon={<AreaIcon />} onClick={() => {}} disabled />
-          </>
-        }
-        panel={strip}
-      >
-        <HudFrame>
-          <div className="flex min-h-[50svh] flex-col items-center justify-center gap-3 font-mono text-[13px] text-lab-text/70">
-            <Loader2 className="size-8 animate-spin text-lab-red" />
-            ОТКРЫВАЕМ ФОТО И ИЩЕМ ЭТАЛОН…
-          </div>
-        </HudFrame>
-      </Workspace>
     )
   } else {
-    view = (
-      <EmptyState
-        strip={strip}
-        onPick={pickFiles}
-        onPickFolder={() => folderInput.current?.click()}
-        onDemo={loadDemo}
-        loadingDemo={loadingDemo}
-      />
-    )
+    view = <LoadingState photo={active} panel={panel} />
   }
 
   return (
     <div
-      className={cn('lab-bg flex min-h-svh flex-col text-lab-text lg:h-svh lg:overflow-hidden', selecting && 'pb-28 lg:pb-0')}
+      className="lab-bg flex min-h-svh flex-col text-lab-text lg:h-svh lg:overflow-hidden"
       onDragEnter={(e) => {
         if (!hasFiles(e)) return
         dragDepth.current++
@@ -354,7 +298,7 @@ export default function HomePage() {
         addFiles(Array.from(e.dataTransfer.files))
       }}
     >
-      <AppHeader selecting={selecting} onSave={saveReport} onScale={toggleScaleMode} />
+      <AppHeader picking={picking} normalized={!!normIds} onScale={toggleScaleMode} onSave={saveReport} />
       {view}
 
       {dragOver && (
@@ -372,17 +316,6 @@ export default function HomePage() {
         accept="image/*"
         multiple
         hidden
-        onChange={(e) => {
-          addFiles(Array.from(e.target.files ?? []))
-          e.target.value = ''
-        }}
-      />
-      <input
-        ref={folderInput}
-        type="file"
-        multiple
-        hidden
-        {...{ webkitdirectory: '' }}
         onChange={(e) => {
           addFiles(Array.from(e.target.files ?? []))
           e.target.value = ''
