@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { fmt } from '@/lib/format'
-import { centroid, clamp, selfIntersects, simplifyPath, smoothPath, trimOverlap } from '@/lib/geometry'
+import { centroid, clamp, selfIntersects, simplifyPath, smoothPath, trimOverlap, untangle } from '@/lib/geometry'
 import { areaOf } from '@/lib/measure'
 import { MARKER_COLOR, areaColor } from '@/lib/photos'
 import { snapToEdges } from '@/lib/snap'
@@ -151,9 +151,10 @@ export default function ImageStage({
         const finish = (line: Pt[]) => simplifyPath(line, 0.3 * k)
         // магнит: контур прилипает к краю объекта в пределах 24 пикселей экрана от линии
         const img = imgRef.current
-        const snapped = img?.complete ? finish(snapToEdges(img, smoothPath(drawn, 1), W, H, 24 * k)) : null
-        // если магнит запутал контур в петлю, берём линию как нарисована, только сгладив дрожание руки
-        onLasso?.(snapped && !selfIntersects(snapped) ? snapped : finish(smoothPath(drawn, 1)))
+        // на вогнутом крае прилипший контур бывает с петлёй в пару пикселей — вырезаем её, а не выбрасываем весь магнит
+        const snapped = img?.complete ? untangle(finish(snapToEdges(img, smoothPath(drawn, 1), W, H, 24 * k))) : null
+        // магнит не сработал (фото ещё не загрузилось) — берём линию как нарисована, сгладив дрожание руки и убрав петли
+        onLasso?.(snapped && !selfIntersects(snapped) ? snapped : untangle(finish(smoothPath(drawn, 1))))
       }
     }
   }

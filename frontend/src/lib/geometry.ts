@@ -201,6 +201,38 @@ export function selfIntersects(points: Pt[]) {
   return false
 }
 
+// Точка пересечения отрезков ab и cd (они точно пересекаются)
+function intersection(a: Pt, b: Pt, c: Pt, d: Pt): Pt {
+  const t = ((c.x - a.x) * (d.y - c.y) - (c.y - a.y) * (d.x - c.x)) / ((b.x - a.x) * (d.y - c.y) - (b.y - a.y) * (d.x - c.x))
+  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }
+}
+
+// Убирает петли из замкнутого контура: где он пересёк сам себя, вырезает меньший кусок между пересечениями.
+// Магнит на вогнутом крае сводит соседние точки в одно место, и они перекрещиваются петлёй в пару пикселей —
+// такую петлю выгоднее вырезать, чем выбрасывать весь прилипший контур
+export function untangle(points: Pt[]): Pt[] {
+  let pts = points
+  for (let guard = 0; guard < 500; guard++) {
+    const n = pts.length
+    if (n < 4) return pts
+    let hit: [number, number] | null = null
+    for (let i = 0; i < n && !hit; i++) {
+      for (let j = i + 2; j < n; j++) {
+        if (i === 0 && j === n - 1) continue
+        if (crosses(pts[i], pts[i + 1], pts[j], pts[(j + 1) % n])) {
+          hit = [i, j]
+          break
+        }
+      }
+    }
+    if (!hit) return pts
+    const [i, j] = hit
+    const x = intersection(pts[i], pts[i + 1], pts[j], pts[(j + 1) % n])
+    pts = j - i <= n / 2 ? [...pts.slice(0, i + 1), x, ...pts.slice(j + 1)] : [x, ...pts.slice(i + 1, j + 1)]
+  }
+  return pts
+}
+
 // Лассо часто «перелетает» за начальную точку. Обрезаем линию там, где конец пересёк начало
 // или, если не пересёк, прошёл ближе всего к нему (ближе gap)
 export function trimOverlap(points: Pt[], gap: number): Pt[] {
