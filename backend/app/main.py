@@ -1,7 +1,7 @@
 """OneScale — бэкенд для измерения площади по фото с эталоном (кейс 03, Обнинский хакатон 2026).
 
 Запуск:  uvicorn app.main:app --reload --port 8000
-Документация API в браузере:  http://localhost:8000/docs
+Документация API в браузере:  http://localhost:8000/api/docs
 """
 from __future__ import annotations
 
@@ -22,8 +22,12 @@ from .storage import Store
 
 store = Store(config.DATA_DIR)
 
+# Документация под /api/: на сервере наружу открыт только этот путь
 app = FastAPI(
     title="OneScale API",
+    docs_url="/api/docs",
+    redoc_url=None,
+    openapi_url="/api/openapi.json",
     version=service.VERSION,
     description=(
         "Измерение площади объектов по фото с квадратным эталоном и приведение фото к общему масштабу.\n\n"

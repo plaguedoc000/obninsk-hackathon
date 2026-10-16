@@ -51,6 +51,9 @@ DETECT_MAX_CANDIDATES = _env_int("ONESCALE_DETECT_MAX_CANDIDATES", 5)
 MAX_UPLOAD_MB = _env_float("ONESCALE_MAX_UPLOAD_MB", 60.0)
 MAX_IMAGE_PIXELS = _env_int("ONESCALE_MAX_IMAGE_PIXELS", 120_000_000)
 
+# Сколько фото держать в памяти для быстрой работы (на маленьком сервере — меньше)
+CACHE_IMAGES = max(1, _env_int("ONESCALE_CACHE_IMAGES", 6))
+
 # Приведение к масштабу: ограничение размера выходной картинки
 MAX_OUTPUT_SIDE = _env_int("ONESCALE_MAX_OUTPUT_SIDE", 8000)
 

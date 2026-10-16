@@ -106,7 +106,7 @@ class Store:
     def _remember(self, image_id: str, bgr: np.ndarray) -> None:
         self._cache[image_id] = bgr
         self._cache.move_to_end(image_id)
-        while len(self._cache) > 6:
+        while len(self._cache) > config.CACHE_IMAGES:
             self._cache.popitem(last=False)
 
     def get(self, image_id: str) -> dict:

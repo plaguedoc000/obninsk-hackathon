@@ -25,7 +25,7 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-Проверка: откройте **http://localhost:8000/docs** — там все адреса, их можно вызвать прямо из браузера
+Проверка: откройте **http://localhost:8000/api/docs** — там все адреса, их можно вызвать прямо из браузера
 (кнопка «Try it out»). Фото и результаты хранятся в папке `data/` рядом с кодом.
 
 Тесты: `pip install -r requirements-dev.txt && python -m pytest -q` (31 тест).

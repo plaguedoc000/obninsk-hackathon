@@ -40,7 +40,8 @@ done
 
 log "Пакеты"
 apt-get update -q
-apt-get install -y -q --no-install-recommends ca-certificates curl gnupg python3 rsync sudo sqlite3 ufw
+# fonts-dejavu-core — кириллица в подписях на картинках, которые рисует бэкенд
+apt-get install -y -q --no-install-recommends ca-certificates curl fonts-dejavu-core gnupg python3 rsync sudo sqlite3 ufw
 if ! apt-cache show caddy >/dev/null 2>&1; then
   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' > /etc/apt/sources.list.d/caddy-stable.list
@@ -99,6 +100,10 @@ WorkingDirectory=$APP_DIR/backend
 Environment=PYTHONUNBUFFERED=1
 # Библиотеки собираются в GitHub Actions и приходят в .deps вместе с кодом
 Environment=PYTHONPATH=$APP_DIR/backend/.deps
+# Фото и измерения — вне папки с кодом: деплой её перезаписывает
+Environment=ONESCALE_DATA_DIR=$APP_DIR/data
+# В памяти держим не больше 2 фото: на сервере всего ~600 МБ
+Environment=ONESCALE_CACHE_IMAGES=2
 ExecStart=/usr/bin/python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --proxy-headers
 Restart=always
 RestartSec=3

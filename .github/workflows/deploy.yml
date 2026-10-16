@@ -58,7 +58,7 @@ jobs:
 
       - name: Бэкенд
         run: |
-          rsync -az --delete --exclude .venv --exclude __pycache__ --exclude .pytest_cache --exclude tests \
+          rsync -az --delete --exclude .venv --exclude __pycache__ --exclude .pytest_cache --exclude tests --exclude /data/ \
             backend/ "$SERVER:/srv/app/backend/"
           ssh "$SERVER" 'sudo systemctl restart app-api'
           ssh "$SERVER" 'for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8000/api/health && exit 0; sleep 1; done; journalctl -u app-api -n 40 --no-pager; exit 1'
