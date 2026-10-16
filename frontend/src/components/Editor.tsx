@@ -4,7 +4,6 @@ import { toast } from 'sonner'
 import ImageStage from '@/components/ImageStage'
 import ResultPanel from '@/components/ResultPanel'
 import Workspace, { AreaIcon, HudFrame, MarkerIcon, RailButton, RailDivider } from '@/components/Workspace'
-import { fmt } from '@/lib/format'
 import { defaultMarker } from '@/lib/geometry'
 import { scaleOf } from '@/lib/measure'
 import { newArea } from '@/lib/photos'
@@ -14,16 +13,13 @@ type Props = {
   photo: Photo
   index: number
   count: number
-  canCompare: boolean
   strip: ReactNode
   onChange: (fn: (p: Photo) => Partial<Photo>) => void
   onRedetect: () => void
-  onCompare: () => void
-  onSave: () => void
 }
 
-// Рабочий экран одного фото: шаг 1 — эталон, шаг 2 — области
-export default function Editor({ photo, index, count, canCompare, strip, onChange, onRedetect, onCompare, onSave }: Props) {
+// Рабочий экран одного фото: шаг 1 — эталон, шаг 2 — области. Результат — под фото, справа только список фото
+export default function Editor({ photo, index, count, strip, onChange, onRedetect }: Props) {
   const [tool, setTool] = useState<Tool>(photo.areas.length && photo.marker ? 'area' : 'marker')
   const [draftId, setDraftId] = useState<string | null>(photo.areas.find((a) => !a.closed)?.id ?? null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -125,9 +121,10 @@ export default function Editor({ photo, index, count, canCompare, strip, onChang
     return () => window.removeEventListener('keydown', onKey)
   })
 
-  // Подсказка и большая кнопка всегда говорят, что делать дальше
+  // Подсказка и большая кнопка говорят, что делать дальше. Когда области готовы, кнопки нет:
+  // отчёт и сравнение — кнопками «Сохранить» и «Масштаб» в шапке
   let hint: string
-  let cta: { label: string; onClick: () => void; disabled?: boolean }
+  let cta: { label: string; onClick: () => void; disabled?: boolean } | undefined
   if (tool === 'marker') {
     if (!photo.marker) {
       hint = 'Квадрат не найден. Поставьте рамку вручную и подвиньте уголки на углы квадрата 1×1 см.'
@@ -148,17 +145,10 @@ export default function Editor({ photo, index, count, canCompare, strip, onChang
   } else if (closedCount) {
     hint = selectedId
       ? 'Точки выбранной области можно двигать. Нажмите на фото — начнётся новая область.'
-      : 'Нажмите на фото, чтобы обвести ещё одну область, или выберите готовую.'
-    cta = canCompare ? { label: 'СРАВНИТЬ ФОТО', onClick: onCompare } : { label: 'СОХРАНИТЬ ОТЧЁТ', onClick: onSave }
+      : 'Нажмите на фото, чтобы обвести ещё одну область, или выберите готовую. Отчёт — «Сохранить» вверху, сравнение фото — «Масштаб».'
   } else {
     hint = 'Нажимайте на фото по краю образца, точка за точкой, а затем замкните контур.'
     cta = { label: 'ОБВЕДИТЕ ОБЛАСТЬ', onClick: () => {}, disabled: true }
-  }
-
-  const status = {
-    marker: photo.marker ? (photo.markerSource === 'auto' ? 'найден' : 'вручную') : 'нет',
-    area: draft ? `рисуется · ${draft.points.length} т.` : closedCount ? `${closedCount} шт.` : 'нет',
-    scale: quality ? `${fmt(quality.ppm, 2)} px/мм` : '—',
   }
 
   return (
@@ -196,24 +186,7 @@ export default function Editor({ photo, index, count, canCompare, strip, onChang
           )}
         </>
       }
-      panel={
-        <>
-          <ResultPanel
-            photo={photo}
-            quality={quality}
-            cta={cta}
-            hint={hint}
-            selectedId={selectedId}
-            draftId={draftId}
-            onSelect={(id) => {
-              setTool('area')
-              if (!draft) setSelectedId(id)
-            }}
-            onDelete={deleteArea}
-          />
-          {strip}
-        </>
-      }
+      panel={strip}
     >
       <div className="flex justify-between gap-3 font-mono text-[13px] text-lab-text/70">
         <span className="min-w-0 truncate">{photo.name}</span>
@@ -222,10 +195,10 @@ export default function Editor({ photo, index, count, canCompare, strip, onChang
         </span>
       </div>
 
-      {/* рамка с уголками облегает фото: ширина как у фото плюс поля 18 px */}
+      {/* рамка с уголками облегает фото: ширина как у фото плюс поля 18 px; высота оставляет место результату под фото */}
       <HudFrame
         className="mx-auto w-full"
-        style={{ maxWidth: `min(100%, calc(max(320px, 100svh - 260px) * ${photo.width / photo.height} + 36px))` }}
+        style={{ maxWidth: `min(100%, calc(max(300px, 100svh - 430px) * ${photo.width / photo.height} + 36px))` }}
       >
         <ImageStage
           photo={photo}
@@ -240,15 +213,19 @@ export default function Editor({ photo, index, count, canCompare, strip, onChang
         />
       </HudFrame>
 
-      <div className="flex flex-wrap gap-x-7 gap-y-1 font-mono text-[13px] text-lab-text/75">
-        <span>
-          <span className="text-lab-sky">ЭТАЛОН</span> {status.marker}
-        </span>
-        <span>
-          <span className="text-lab-red">ОБЛАСТЬ</span> {status.area}
-        </span>
-        <span>МАСШТАБ {status.scale}</span>
-      </div>
+      <ResultPanel
+        photo={photo}
+        quality={quality}
+        cta={cta}
+        hint={hint}
+        selectedId={selectedId}
+        draftId={draftId}
+        onSelect={(id) => {
+          setTool('area')
+          if (!draft) setSelectedId(id)
+        }}
+        onDelete={deleteArea}
+      />
     </Workspace>
   )
 }

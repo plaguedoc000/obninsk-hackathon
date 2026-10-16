@@ -19,7 +19,7 @@ type Props = {
   onCancel: () => void
 }
 
-// Список фото в правой панели: миниатюра, название, статус эталона и площадь
+// Список фото в правой панели: сверху «Добавить фото», ниже миниатюра, название, статус эталона и площадь
 export default function PhotoList({
   photos,
   highlightIds,
@@ -38,6 +38,30 @@ export default function PhotoList({
 
   return (
     <div className="flex flex-col gap-2">
+      {/* при выборе для масштаба «Подтвердить» всегда на виду: на компьютере прилипает к верху списка,
+          на телефоне закреплена вверху экрана */}
+      {selecting && (
+        <div className="fixed inset-x-0 top-0 z-30 flex flex-wrap gap-2 border-b border-lab-sky/25 bg-lab-bg/95 p-3 backdrop-blur lg:sticky lg:inset-x-auto lg:-mx-3 lg:flex-col lg:flex-nowrap lg:border lg:border-lab-red/40 lg:shadow-[0_8px_24px_rgba(0,0,0,.45)]">
+          <p className="w-full text-center font-mono text-[11px] text-lab-text/55 lg:text-left">
+            Отметьте два фото или больше — они откроются в одном масштабе
+          </p>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="flex h-12 flex-1 items-center justify-center bg-lab-red font-mono text-[13px] font-semibold tracking-[.12em] text-white shadow-[0_0_28px_rgba(224,30,60,.4)] lg:flex-none"
+          >
+            ПОДТВЕРДИТЬ ({selected.size})
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex h-12 items-center justify-center border border-lab-sky/40 px-5 font-mono text-[13px] tracking-[.08em] hover:bg-lab-blue/15"
+          >
+            ОТМЕНА
+          </button>
+        </div>
+      )}
+
       {/* высота строки постоянная, чтобы при выборе список не сдвигался */}
       <div className="flex h-7 items-center gap-3">
         <PanelLabel>ФОТО · {photos.length}</PanelLabel>
@@ -54,6 +78,16 @@ export default function PhotoList({
           </button>
         )}
       </div>
+
+      {!selecting && (
+        <button
+          type="button"
+          onClick={onAdd}
+          className="flex h-[52px] items-center justify-center border border-dashed border-lab-sky/45 font-mono text-[13px] tracking-[.08em] text-lab-text/75 transition-colors outline-none hover:border-lab-sky hover:text-white focus-visible:ring-2 focus-visible:ring-lab-blue"
+        >
+          + ДОБАВИТЬ ФОТО
+        </button>
+      )}
 
       <ul className="flex flex-col gap-2">
         {photos.map((photo, index) => {
@@ -127,42 +161,10 @@ export default function PhotoList({
         })}
       </ul>
 
-      {!selecting && (
-        <button
-          type="button"
-          onClick={onAdd}
-          className="flex h-[52px] items-center justify-center border border-dashed border-lab-sky/45 font-mono text-[13px] tracking-[.08em] text-lab-text/75 transition-colors outline-none hover:border-lab-sky hover:text-white focus-visible:ring-2 focus-visible:ring-lab-blue"
-        >
-          + ДОБАВИТЬ ФОТО
-        </button>
-      )}
-
       {!selecting && ready.length >= 2 && (
         <p className="font-mono text-[11px] leading-relaxed text-lab-text/45">
           Чтобы сравнить фото, нажмите «Масштаб» и отметьте нужные.
         </p>
-      )}
-
-      {selecting && (
-        <div className="fixed inset-x-0 bottom-0 z-30 flex flex-wrap gap-2 border-t border-lab-sky/25 bg-lab-bg/95 p-3 backdrop-blur lg:static lg:mt-2 lg:flex-col lg:flex-nowrap lg:border-0 lg:bg-transparent lg:p-0 lg:backdrop-blur-none">
-          <p className="w-full text-center font-mono text-[11px] text-lab-text/55 lg:text-left">
-            Отметьте два фото или больше — они откроются в одном масштабе
-          </p>
-          <button
-            type="button"
-            onClick={onConfirm}
-            className="flex h-12 flex-1 items-center justify-center bg-lab-red font-mono text-[13px] font-semibold tracking-[.12em] text-white shadow-[0_0_28px_rgba(224,30,60,.4)] lg:flex-none"
-          >
-            ПОДТВЕРДИТЬ ({selected.size})
-          </button>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="flex h-12 items-center justify-center border border-lab-sky/40 px-5 font-mono text-[13px] tracking-[.08em] hover:bg-lab-blue/15"
-          >
-            ОТМЕНА
-          </button>
-        </div>
       )}
     </div>
   )

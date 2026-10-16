@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowLeft, FileArchive, ImageDown, ZoomIn, ZoomOut } from 'lucide-react'
 import { toast } from 'sonner'
-import Workspace, { BigValue, CtaButton, HudFrame, PanelLabel, RailButton, RailDivider, StatRow } from '@/components/Workspace'
+import Workspace, { BigValue, HudFrame, PanelLabel, RailButton, RailDivider, StatRow } from '@/components/Workspace'
 import { fmt } from '@/lib/format'
 import { scaleOf, totalsOf } from '@/lib/measure'
 import { MARKER_COLOR, areaColor } from '@/lib/photos'
@@ -64,28 +64,7 @@ export default function CompareView({ photos, strip, onClose, onZip }: Props) {
           <RailButton label="МЕЛЬЧЕ" icon={<ZoomOut />} onClick={() => setZoom((z) => clampZoom(z - 0.25))} disabled={zoom <= 0.25} />
         </>
       }
-      panel={
-        <>
-          <div className="flex flex-col gap-2.5">
-            <PanelLabel>ОБЩИЙ МАСШТАБ</PanelLabel>
-            <BigValue value={fmt(refPpm, 2)} unit="px/мм" />
-            {items.map(({ photo, ppm, total }, i) => (
-              <StatRow
-                key={photo.id}
-                first={i === 0}
-                label={photo.name.replace(/\.[^.]+$/, '')}
-                value={`×${fmt(refPpm / ppm, 2)}${total ? ` · ${fmt(total, 1)} мм²` : ''}`}
-              />
-            ))}
-          </div>
-          <CtaButton label={exporting ? 'СОБИРАЕМ…' : 'СКАЧАТЬ PNG'} onClick={download} disabled={exporting} />
-          <p className="text-[13px] leading-normal text-lab-text/60">
-            Каждое фото увеличено так, чтобы 1 см был одинаковым. Синяя рамка — эталон: на всех снимках он одного размера,
-            поэтому образцы можно сравнивать на глаз.
-          </p>
-          {strip}
-        </>
-      }
+      panel={strip}
     >
       <div className="flex justify-between gap-3 font-mono text-[13px] text-lab-text/70">
         <span>СРАВНЕНИЕ В ОДНОМ МАСШТАБЕ</span>
@@ -162,6 +141,27 @@ export default function CompareView({ photos, strip, onClose, onZip }: Props) {
           </div>
         </div>
       </HudFrame>
+
+      {/* под фото: общий масштаб и во сколько раз увеличено каждое фото */}
+      <div className="grid gap-x-10 gap-y-4 border border-lab-sky/20 bg-lab-bg/60 p-4 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center lg:px-6">
+        <div className="flex flex-col gap-2">
+          <PanelLabel>ОБЩИЙ МАСШТАБ</PanelLabel>
+          <BigValue value={fmt(refPpm, 2)} unit="px/мм" />
+        </div>
+        <div className="grid gap-x-8 gap-y-2 border-t border-lab-sky/20 pt-3 sm:border-t-0 sm:border-l sm:pt-0 sm:pl-8 md:grid-cols-2">
+          {items.map(({ photo, ppm, total }) => (
+            <StatRow
+              key={photo.id}
+              label={photo.name.replace(/\.[^.]+$/, '')}
+              value={`×${fmt(refPpm / ppm, 2)}${total ? ` · ${fmt(total, 1)} мм²` : ''}`}
+            />
+          ))}
+        </div>
+      </div>
+      <p className="text-[13px] leading-normal text-lab-text/60">
+        Каждое фото увеличено так, чтобы 1 см был одинаковым. Синяя рамка — эталон: на всех снимках он одного размера,
+        поэтому образцы можно сравнивать на глаз.
+      </p>
     </Workspace>
   )
 }

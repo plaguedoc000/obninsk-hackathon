@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react'
 import { FolderOpen, Images, Plus } from 'lucide-react'
-import ResultPanel from '@/components/ResultPanel'
 import Workspace, { AreaIcon, HudFrame, MarkerIcon, RailButton } from '@/components/Workspace'
 
 type Props = { strip: ReactNode; onPick: () => void; onPickFolder: () => void; onDemo: () => void; loadingDemo: boolean }
@@ -20,17 +19,7 @@ export default function EmptyState({ strip, onPick, onPickFolder, onDemo, loadin
           <RailButton label="ОБЛАСТЬ" icon={<AreaIcon />} onClick={() => {}} disabled />
         </>
       }
-      panel={
-        <>
-          <ResultPanel
-            photo={null}
-            quality={null}
-            cta={{ label: 'ВЫБРАТЬ ФОТО', onClick: onPick }}
-            hint="Загрузите фото с квадратом-эталоном 1×1 см или попробуйте готовые примеры. Фото уходят на наш сервер: он сам находит эталон и считает площадь с оценкой погрешности."
-          />
-          {strip}
-        </>
-      }
+      panel={strip}
     >
       <div className="flex justify-between gap-3 font-mono text-[13px] text-lab-text/70">
         <span>НЕТ ФОТО</span>
@@ -70,6 +59,10 @@ export default function EmptyState({ strip, onPick, onPickFolder, onDemo, loadin
           ВЫБРАТЬ ПАПКУ
         </button>
       </div>
+
+      <p className="text-[13px] leading-normal text-lab-text/60">
+        Фото уходят на наш сервер: он сам находит квадрат-эталон 1×1 см и считает площадь с оценкой погрешности.
+      </p>
 
       <ol className="grid gap-px border border-lab-sky/20 bg-lab-sky/20 sm:grid-cols-3">
         {STEPS.map(({ n, title, text }) => (
