@@ -1,13 +1,13 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { Check, ScanSearch, SquareDashed, Trash2, Undo2 } from 'lucide-react'
+import { Check, Lasso, ScanSearch, SquareDashed, Trash2, Undo2 } from 'lucide-react'
 import { toast } from 'sonner'
 import ImageStage from '@/components/ImageStage'
 import ResultPanel from '@/components/ResultPanel'
 import Workspace, { AreaIcon, HudFrame, MarkerIcon, RailButton, RailDivider } from '@/components/Workspace'
 import { fmt } from '@/lib/format'
-import { defaultMarker } from '@/lib/geometry'
+import { defaultMarker, selfIntersects } from '@/lib/geometry'
 import { scaleOf } from '@/lib/measure'
-import { newArea } from '@/lib/photos'
+import { newArea, newId } from '@/lib/photos'
 import type { Area, Photo, Pt, Tool } from '@/lib/types'
 
 type Props = {
@@ -27,6 +27,8 @@ export default function Editor({ photo, index, count, canCompare, strip, onChang
   const [tool, setTool] = useState<Tool>(photo.areas.length && photo.marker ? 'area' : 'marker')
   const [draftId, setDraftId] = useState<string | null>(photo.areas.find((a) => !a.closed)?.id ?? null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  // лассо по умолчанию: обвести одним движением удобнее, особенно на телефоне
+  const [lasso, setLasso] = useState(true)
 
   const draft = photo.areas.find((a) => a.id === draftId) ?? null
   const closedCount = photo.areas.filter((a) => a.closed).length
@@ -66,6 +68,20 @@ export default function Editor({ photo, index, count, canCompare, strip, onChang
     setAreas((areas) => [...areas, area])
     setDraftId(area.id)
     setSelectedId(null)
+  }
+
+  function addLasso(points: Pt[]) {
+    if (points.length < 3) {
+      toast.error('Контур слишком маленький. Обведите объект крупнее')
+      return
+    }
+    if (selfIntersects(points)) {
+      toast.error('Контур пересекает сам себя. Обведите объект ещё раз, без петель')
+      return
+    }
+    const area = { id: newId('a'), points, closed: true }
+    setAreas((areas) => [...areas, area])
+    setSelectedId(area.id)
   }
 
   function movePoint(areaId: string, i: number, p: Pt) {
@@ -147,11 +163,13 @@ export default function Editor({ photo, index, count, canCompare, strip, onChang
     cta = { label: 'ЗАМКНУТЬ КОНТУР', onClick: finishDraft, disabled: draft.points.length < 3 }
   } else if (closedCount) {
     hint = selectedId
-      ? 'Точки выбранной области можно двигать. Нажмите на фото — начнётся новая область.'
-      : 'Нажмите на фото, чтобы обвести ещё одну область, или выберите готовую.'
+      ? `Точки выбранной области можно двигать. ${lasso ? 'Обведите на фото' : 'Нажмите на фото'} — начнётся новая область.`
+      : `${lasso ? 'Обведите на фото' : 'Нажмите на фото'}, чтобы добавить ещё одну область, или выберите готовую.`
     cta = canCompare ? { label: 'СРАВНИТЬ ФОТО', onClick: onCompare } : { label: 'СОХРАНИТЬ ОТЧЁТ', onClick: onSave }
   } else {
-    hint = 'Нажимайте на фото по краю образца, точка за точкой, а затем замкните контур.'
+    hint = lasso
+      ? 'Зажмите и обведите образец примерно, одним движением — контур сам прилипнет к краю и замкнётся.'
+      : 'Нажимайте на фото по краю образца, точка за точкой, а затем замкните контур.'
     cta = { label: 'ОБВЕДИТЕ ОБЛАСТЬ', onClick: () => {}, disabled: true }
   }
 
@@ -175,6 +193,14 @@ export default function Editor({ photo, index, count, canCompare, strip, onChang
             </>
           ) : (
             <>
+              <RailButton
+                label="ЛАССО"
+                icon={<Lasso />}
+                active={lasso}
+                onClick={() => setLasso((v) => !v)}
+                disabled={!!draft}
+                title={lasso ? 'Магнитное лассо: обведите примерно, контур прилипнет к краю. Нажмите, чтобы ставить точки' : 'Включить магнитное лассо'}
+              />
               <RailButton label="НАЗАД" icon={<Undo2 />} onClick={undoPoint} disabled={!draft} title="Убрать последнюю точку" />
               <RailButton
                 label="ГОТОВО"
@@ -237,6 +263,8 @@ export default function Editor({ photo, index, count, canCompare, strip, onChang
           onMovePoint={movePoint}
           onPointTap={pointTap}
           onSelectArea={setSelectedId}
+          lasso={lasso}
+          onLasso={addLasso}
         />
       </HudFrame>
 

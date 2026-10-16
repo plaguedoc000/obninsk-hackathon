@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { fmt } from '@/lib/format'
-import { centroid, clamp } from '@/lib/geometry'
+import { centroid, clamp, selfIntersects, simplifyPath, smoothPath, trimOverlap } from '@/lib/geometry'
 import { areaOf } from '@/lib/measure'
 import { MARKER_COLOR, areaColor } from '@/lib/photos'
+import { snapToEdges } from '@/lib/snap'
 import type { Photo, Pt, Quad, Tool } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -11,6 +12,7 @@ type Drag =
   | { kind: 'marker'; start: Pt; orig: Quad }
   | { kind: 'point'; areaId: string; index: number; moved: boolean; x: number; y: number }
   | { kind: 'tap'; x: number; y: number }
+  | { kind: 'lasso' }
 
 type Props = {
   photo: Photo
@@ -22,6 +24,8 @@ type Props = {
   onMovePoint: (areaId: string, index: number, p: Pt) => void
   onPointTap: (areaId: string, index: number) => void
   onSelectArea: (id: string) => void
+  lasso?: boolean
+  onLasso?: (points: Pt[]) => void
 }
 
 const toPoints = (pts: Pt[]) => pts.map((p) => `${p.x},${p.y}`).join(' ')
@@ -36,14 +40,19 @@ export default function ImageStage({
   onMovePoint,
   onPointTap,
   onSelectArea,
+  lasso,
+  onLasso,
 }: Props) {
   const { width: W, height: H, marker } = photo
   const wrapRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
+  const imgRef = useRef<HTMLImageElement>(null)
   const drag = useRef<Drag | null>(null)
   const [renderedW, setRenderedW] = useState(0)
   const [loupe, setLoupe] = useState<Pt | null>(null)
   const [hover, setHover] = useState<Pt | null>(null)
+  const lassoRef = useRef<Pt[]>([])
+  const [lassoPath, setLassoPath] = useState<Pt[] | null>(null)
 
   useEffect(() => {
     const el = wrapRef.current
@@ -65,15 +74,31 @@ export default function ImageStage({
     return { x: clamp(p.x, 0, W), y: clamp(p.y, 0, H) }
   }
 
+  // захват указателя, чтобы перетаскивание не срывалось за краем фото
+  function capture(pointerId: number) {
+    try {
+      svgRef.current?.setPointerCapture(pointerId)
+    } catch {
+      // указатель уже отпущен — захват не нужен
+    }
+  }
+
   function begin(e: ReactPointerEvent, d: Drag) {
     e.stopPropagation()
-    svgRef.current?.setPointerCapture(e.pointerId)
+    capture(e.pointerId)
     drag.current = d
   }
 
   function onBackgroundDown(e: ReactPointerEvent) {
     if (tool !== 'area' || e.button > 0) return
-    svgRef.current?.setPointerCapture(e.pointerId)
+    capture(e.pointerId)
+    // лассо: зажали и ведём — линия рисуется за пальцем или мышкой
+    if (lasso && !draftId) {
+      lassoRef.current = [toImage(e)]
+      setLassoPath(lassoRef.current)
+      drag.current = { kind: 'lasso' }
+      return
+    }
     drag.current = { kind: 'tap', x: e.clientX, y: e.clientY }
   }
 
@@ -84,7 +109,14 @@ export default function ImageStage({
       if (tool === 'area' && draftId && e.pointerType === 'mouse') setHover(p)
       return
     }
-    if (d.kind === 'corner' && marker) {
+    if (d.kind === 'lasso') {
+      const last = lassoRef.current[lassoRef.current.length - 1]
+      // точки не чаще чем раз в 2 пикселя экрана
+      if (!last || Math.hypot(p.x - last.x, p.y - last.y) > 2 * k) {
+        lassoRef.current = [...lassoRef.current, p]
+        setLassoPath(lassoRef.current)
+      }
+    } else if (d.kind === 'corner' && marker) {
       const q = [...marker] as Quad
       q[d.index] = p
       onMarkerChange(q)
@@ -109,11 +141,28 @@ export default function ImageStage({
     setLoupe(null)
     if (d?.kind === 'tap' && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 8) onAddPoint(toImage(e))
     if (d?.kind === 'point' && !d.moved) onPointTap(d.areaId, d.index)
+    if (d?.kind === 'lasso') {
+      const pts = lassoRef.current
+      lassoRef.current = []
+      setLassoPath(null)
+      if (pts.length >= 8) {
+        const drawn = trimOverlap(pts, 20 * k)
+        // оставляем только точки, которые меняют форму больше 0,3 пикселя экрана
+        const finish = (line: Pt[]) => simplifyPath(line, 0.3 * k)
+        // магнит: контур прилипает к краю объекта в пределах 24 пикселей экрана от линии
+        const img = imgRef.current
+        const snapped = img?.complete ? finish(snapToEdges(img, smoothPath(drawn, 1), W, H, 24 * k)) : null
+        // если магнит запутал контур в петлю, берём линию как нарисована, только сгладив дрожание руки
+        onLasso?.(snapped && !selfIntersects(snapped) ? snapped : finish(smoothPath(drawn, 1)))
+      }
+    }
   }
 
   function onCancel() {
     drag.current = null
     setLoupe(null)
+    lassoRef.current = []
+    setLassoPath(null)
   }
 
   const label ={ fontSize: 13 * k, strokeWidth: 3.5 * k }
@@ -125,6 +174,7 @@ export default function ImageStage({
       style={{ aspectRatio: `${W} / ${H}`, maxWidth: `min(100%, calc(max(320px, 100svh - 260px) * ${W / H}))` }}
     >
       <img
+        ref={imgRef}
         src={photo.url}
         alt={photo.name}
         draggable={false}
@@ -134,7 +184,7 @@ export default function ImageStage({
         ref={svgRef}
         viewBox={`0 0 ${W} ${H}`}
         className={cn('absolute inset-0 size-full overflow-visible', tool === 'area' && 'cursor-crosshair')}
-        style={{ touchAction: 'pan-y pinch-zoom' }}
+        style={{ touchAction: tool === 'area' && lasso ? 'none' : 'pan-y pinch-zoom' }}
         onPointerDown={onBackgroundDown}
         onPointerMove={onMove}
         onPointerUp={onUp}
@@ -294,6 +344,18 @@ export default function ImageStage({
                 </g>
               ))}
           </g>
+        )}
+        {lassoPath && lassoPath.length > 1 && (
+          <polyline
+            points={toPoints(lassoPath)}
+            fill={areaColor(photo.areas.length)}
+            fillOpacity={0.12}
+            stroke={areaColor(photo.areas.length)}
+            strokeWidth={2}
+            strokeLinejoin="round"
+            vectorEffect="non-scaling-stroke"
+            pointerEvents="none"
+          />
         )}
       </svg>
 
