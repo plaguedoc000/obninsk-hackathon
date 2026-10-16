@@ -148,3 +148,51 @@ def test_groups_and_patch():
     client.patch(f"/api/images/{v['id']}", json={"group": "Эксперимент 1", "note": "контроль"})
     groups = {g["name"]: g["count"] for g in client.get("/api/groups").json()["groups"]}
     assert groups.get("Эксперимент 1") == 1
+
+
+def test_csv_has_only_six_columns_and_local_date():
+    img, _, obj = scene(6.0)
+    v = upload("csv.jpg", jpeg_bytes(img), group="csv6")
+    client.post(f"/api/images/{v['id']}/measurements", json={"points": obj.tolist()})
+    r = client.get("/api/export.csv", params={"image_ids": v["id"], "tz": 180})
+    rows = list(csv.reader(io.StringIO(r.content.decode("utf-8-sig")), delimiter=";"))
+    assert rows[0] == ["Файл", "Площадь, мм²", "Площадь, см²", "Периметр, мм", "Масштаб, пикс/мм", "Дата"]
+    name, mm2, cm2, perim, ppm, date = rows[1]
+    assert name == "csv.jpg"
+    assert float(mm2.replace(",", ".")) == pytest.approx(1200, rel=0.015)
+    assert float(cm2.replace(",", ".")) == pytest.approx(12, rel=0.015)
+    assert float(perim.replace(",", ".")) == pytest.approx(140, rel=0.015)
+    assert float(ppm.replace(",", ".")) == pytest.approx(6, rel=0.01)
+    assert len(date) == 16 and date[2] == "." and date[5] == "." and date[13] == ":"  # 16.10.2026 21:24
+
+
+def test_autocontour_union_merges_touching_regions():
+    """Shift+клик «Авто»: новая заливка объединяется с уже выделенной областью."""
+    ppm = 6.0
+    m = rect_corners(250, 250, 10 * ppm, 10 * ppm, 0)
+    left = rect_corners(700, 600, 30 * ppm, 40 * ppm, 0)  # 30×40 мм
+    right = rect_corners(700 + 30 * ppm, 600, 30 * ppm, 40 * ppm, 0)  # вплотную справа, другого цвета
+    img = render(shapes=[(m, DARK), (left, PAPER), (right, (90, 160, 90))], noise=1.5)
+    v = upload("union.jpg", jpeg_bytes(img))
+    a = client.post(f"/api/images/{v['id']}/autocontour", json={"point": left.mean(axis=0).tolist()}).json()
+    assert a["preview"]["area_mm2"] == pytest.approx(1200, rel=0.04)
+    b = client.post(f"/api/images/{v['id']}/autocontour",
+                    json={"point": right.mean(axis=0).tolist(), "union": [a["points_px"]]}).json()
+    assert len(b["contours_px"]) == 1
+    assert b["preview"]["area_mm2"] == pytest.approx(2400, rel=0.04)
+
+
+def test_autocontour_union_keeps_separate_parts():
+    ppm = 6.0
+    m = rect_corners(250, 250, 10 * ppm, 10 * ppm, 0)
+    a_obj = rect_corners(600, 600, 30 * ppm, 30 * ppm, 0)
+    b_obj = rect_corners(1200, 700, 20 * ppm, 20 * ppm, 0)
+    img = render(shapes=[(m, DARK), (a_obj, PAPER), (b_obj, PAPER)], noise=1.5)
+    v = upload("parts.jpg", jpeg_bytes(img))
+    a = client.post(f"/api/images/{v['id']}/autocontour", json={"point": a_obj.mean(axis=0).tolist()}).json()
+    b = client.post(f"/api/images/{v['id']}/autocontour",
+                    json={"point": b_obj.mean(axis=0).tolist(), "union": [a["points_px"]]}).json()
+    assert len(b["contours_px"]) == 2
+    # первым идёт кусок, по которому щёлкнули
+    first = np.array(b["contours_px"][0])
+    assert np.allclose(first.mean(axis=0), b_obj.mean(axis=0), atol=15)

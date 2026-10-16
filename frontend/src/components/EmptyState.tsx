@@ -1,13 +1,12 @@
-import type { ReactNode } from 'react'
 import Workspace, { AreaRow, Scan, StageFrame, StageTitle, ToolRail } from '@/components/Workspace'
 import type { Photo } from '@/lib/types'
 
-type Props = { panel: ReactNode; onPick: () => void; onBack?: () => void }
+type Props = { onPick: () => void }
 
 // Экран «новое фото»: подсказка, как снимать, и выбор файла. Инструменты пока бледные
-export default function EmptyState({ panel, onPick, onBack }: Props) {
+export default function EmptyState({ onPick }: Props) {
   return (
-    <Workspace rail={<ToolRail disabled />} panel={panel}>
+    <Workspace rail={<ToolRail disabled />}>
       <StageTitle name="новое фото" />
       <StageFrame>
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-[26px] p-6 text-center">
@@ -32,15 +31,6 @@ export default function EmptyState({ panel, onPick, onBack }: Props) {
             >
               ВЫБРАТЬ ФАЙЛ
             </button>
-            {onBack && (
-              <button
-                type="button"
-                onClick={onBack}
-                className="flex h-11 items-center border border-lab-sky/45 px-[22px] outline-none hover:bg-lab-blue/15 focus-visible:ring-2 focus-visible:ring-lab-blue"
-              >
-                НАЗАД К ФОТО
-              </button>
-            )}
           </div>
         </div>
       </StageFrame>
@@ -50,9 +40,9 @@ export default function EmptyState({ panel, onPick, onBack }: Props) {
 }
 
 // Фото загружается: сервер ищет эталон, по фото бежит красная полоса
-export function LoadingState({ photo, panel }: { photo: Photo; panel: ReactNode }) {
+export function LoadingState({ photo }: { photo: Photo }) {
   return (
-    <Workspace rail={<ToolRail disabled />} panel={panel}>
+    <Workspace rail={<ToolRail disabled />}>
       <StageTitle name={photo.name} />
       <StageFrame>
         <div className="absolute inset-x-6 inset-y-[30px] flex items-center justify-center">

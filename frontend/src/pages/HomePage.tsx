@@ -5,6 +5,7 @@ import AppHeader from '@/components/AppHeader'
 import Editor from '@/components/Editor'
 import EmptyState, { LoadingState } from '@/components/EmptyState'
 import PhotoList from '@/components/PhotoList'
+import { Shell } from '@/components/Workspace'
 import { api } from '@/lib/api'
 import { today } from '@/lib/format'
 import { scaleOf } from '@/lib/measure'
@@ -22,11 +23,10 @@ export default function HomePage() {
   const [picking, setPicking] = useState(false)
   const [picked, setPicked] = useState<string[]>([])
   const [normIds, setNormIds] = useState<string[] | null>(null)
-  // экран «новое фото» после «+ Добавить фото»
-  const [adding, setAdding] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const dragDepth = useRef(0)
   const fileInput = useRef<HTMLInputElement>(null)
+  const folderInput = useRef<HTMLInputElement>(null)
 
   const active = photos.find((p) => p.id === activeId) ?? photos[0] ?? null
 
@@ -66,7 +66,6 @@ export default function HomePage() {
       const created = images.map(createPhoto)
       setPhotos((prev) => [...prev, ...created])
       setActiveId(created[0].id)
-      setAdding(false)
       setPicking(false)
 
       const failed: string[] = []
@@ -175,7 +174,6 @@ export default function HomePage() {
     }
     setPicked(normIds ?? [])
     setPicking(true)
-    setAdding(false)
   }
 
   function togglePick(photo: Photo) {
@@ -232,20 +230,15 @@ export default function HomePage() {
   const panel = (
     <PhotoList
       photos={photos}
-      activeId={adding ? null : (active?.id ?? null)}
+      activeId={active?.id ?? null}
       picking={picking}
       picked={picked}
       normIds={normIds}
-      onOpen={(id) => {
-        setActiveId(id)
-        setAdding(false)
-      }}
+      onOpen={setActiveId}
       onToggle={togglePick}
       onRemove={removePhoto}
-      onAdd={() => {
-        setAdding(true)
-        setPicking(false)
-      }}
+      onAdd={pickFiles}
+      onAddFolder={() => folderInput.current?.click()}
       onApply={applyScale}
       onReset={resetScale}
       onCancel={() => setPicking(false)}
@@ -261,21 +254,20 @@ export default function HomePage() {
       : null
 
   let view
-  if (adding || !active) {
-    view = <EmptyState panel={panel} onPick={pickFiles} onBack={active ? () => setAdding(false) : undefined} />
+  if (!active) {
+    view = <EmptyState onPick={pickFiles} />
   } else if (active.status === 'ready') {
     view = (
       <Editor
         key={active.id}
         photo={active}
-        panel={panel}
         norm={norm}
         picking={picking}
         onChange={(fn) => updatePhoto(active.id, fn)}
       />
     )
   } else {
-    view = <LoadingState photo={active} panel={panel} />
+    view = <LoadingState photo={active} />
   }
 
   return (
@@ -299,7 +291,7 @@ export default function HomePage() {
       }}
     >
       <AppHeader picking={picking} normalized={!!normIds} onScale={toggleScaleMode} onSave={saveReport} />
-      {view}
+      <Shell panel={panel}>{view}</Shell>
 
       {dragOver && (
         <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-lab-blue/15 p-6 backdrop-blur-[2px]">
@@ -316,6 +308,17 @@ export default function HomePage() {
         accept="image/*"
         multiple
         hidden
+        onChange={(e) => {
+          addFiles(Array.from(e.target.files ?? []))
+          e.target.value = ''
+        }}
+      />
+      <input
+        ref={folderInput}
+        type="file"
+        multiple
+        hidden
+        {...{ webkitdirectory: '' }}
         onChange={(e) => {
           addFiles(Array.from(e.target.files ?? []))
           e.target.value = ''

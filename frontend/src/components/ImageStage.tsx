@@ -1,17 +1,17 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { Scan, StageFrame } from '@/components/Workspace'
 import { fmt } from '@/lib/format'
-import { clamp, perimeterMm, selfIntersects, simplifyPath, smoothPath, trimOverlap, untangle } from '@/lib/geometry'
-import { snapToEdges } from '@/lib/snap'
+import { clamp, perimeterMm } from '@/lib/geometry'
 import type { Photo, Pt, Quad, Tool } from '@/lib/types'
 
 type Drag =
   | { kind: 'corner'; index: number }
   | { kind: 'marker'; start: Pt; orig: Quad }
   | { kind: 'point'; areaId: string; index: number }
-  | { kind: 'tap'; x: number; y: number }
-  | { kind: 'lasso' }
+  | { kind: 'tap'; x: number; y: number; shift: boolean }
   | { kind: 'ruler'; a: Pt }
+
+type Pan = { x: number; y: number; cx: number; cy: number }
 
 export type Line = { a: Pt; b: Pt }
 
@@ -26,14 +26,19 @@ type Props = {
   norm: Norm | null
   busy: boolean
   markerDraft: Pt[]
+  draft: Pt[]
+  selectedId: string | null
   ruler: Line | null
   onDragStart: () => void
   onMarkerChange: (q: Quad) => void
   onMarkerPoint: (p: Pt) => void
   onMovePoint: (areaId: string, index: number, p: Pt) => void
-  onLasso: (points: Pt[]) => void
-  onWand: (p: Pt) => void
+  onDraftPoint: (p: Pt) => void
+  onCloseDraft: () => void
+  onWand: (p: Pt, add: boolean) => void
+  onSelectArea: (id: string) => void
   onRuler: (line: Line) => void
+  onZoom: (zoom: number) => void
 }
 
 const RED = '#E01E3C'
@@ -43,6 +48,7 @@ const PAD_X = 24
 const PAD_Y = 30
 const LENS = 160
 const LENS_ZOOM = 3
+export const MAX_ZOOM = 8
 
 const toPoints = (pts: Pt[]) => pts.map((p) => `${p.x},${p.y}`).join(' ')
 
@@ -67,27 +73,31 @@ export default function ImageStage({
   norm,
   busy,
   markerDraft,
+  draft,
+  selectedId,
   ruler,
   onDragStart,
   onMarkerChange,
   onMarkerPoint,
   onMovePoint,
-  onLasso,
+  onDraftPoint,
+  onCloseDraft,
   onWand,
+  onSelectArea,
   onRuler,
+  onZoom,
 }: Props) {
   const { width: W, height: H, marker } = photo
   const frameRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
-  const imgRef = useRef<HTMLImageElement>(null)
   const drag = useRef<Drag | null>(null)
-  const lassoRef = useRef<Pt[]>([])
+  const pan = useRef<Pan | null>(null)
   const [size, setSize] = useState({ w: 0, h: 0 })
   const [center, setCenter] = useState<Pt>({ x: W / 2, y: H / 2 })
   const [mouse, setMouse] = useState<Pt | null>(null)
   const [dragging, setDragging] = useState(false)
+  const [panning, setPanning] = useState(false)
   const [touch, setTouch] = useState(false)
-  const [lassoPath, setLassoPath] = useState<Pt[] | null>(null)
 
   useEffect(() => {
     const el = frameRef.current
@@ -113,6 +123,35 @@ export default function ImageStage({
   const left = size.w / 2 - cx * s
   const top = size.h / 2 - cy * s
 
+  // Ctrl (⌘ на Mac) + колесо — масштаб вокруг курсора. Слушатель «не пассивный», иначе браузер увеличит всю страницу
+  const view = useRef({ s, base, cx, cy, zoom, w: size.w, h: size.h, onZoom })
+  useLayoutEffect(() => {
+    view.current = { s, base, cx, cy, zoom, w: size.w, h: size.h, onZoom }
+  })
+  useEffect(() => {
+    const el = frameRef.current
+    if (!el) return
+    const frame: HTMLDivElement = el
+    function onWheel(e: WheelEvent) {
+      if (!e.ctrlKey && !e.metaKey) return
+      e.preventDefault()
+      const v = view.current
+      const next = clamp(v.zoom * Math.exp(-e.deltaY * 0.0025), 1, MAX_ZOOM)
+      if (next === v.zoom) return
+      const r = frame.getBoundingClientRect()
+      const mx = e.clientX - r.left
+      const my = e.clientY - r.top
+      // точка фото под курсором остаётся под курсором
+      const px = v.cx + (mx - v.w / 2) / v.s
+      const py = v.cy + (my - v.h / 2) / v.s
+      const s2 = v.base * next
+      setCenter({ x: px - (mx - v.w / 2) / s2, y: py - (my - v.h / 2) / s2 })
+      v.onZoom(next)
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [])
+
   function toImage(e: { clientX: number; clientY: number }): Pt {
     const ctm = svgRef.current?.getScreenCTM()
     if (!ctm) return { x: 0, y: 0 }
@@ -121,16 +160,17 @@ export default function ImageStage({
   }
 
   // захват указателя, чтобы перетаскивание не срывалось за краем фото
-  function capture(pointerId: number) {
+  function capture(el: Element | null, pointerId: number) {
     try {
-      svgRef.current?.setPointerCapture(pointerId)
+      el?.setPointerCapture(pointerId)
     } catch {
       // указатель уже отпущен — захват не нужен
     }
   }
 
   function start(e: ReactPointerEvent, d: Drag) {
-    capture(e.pointerId)
+    e.stopPropagation()
+    capture(svgRef.current, e.pointerId)
     drag.current = d
     setDragging(true)
   }
@@ -138,28 +178,44 @@ export default function ImageStage({
   // Перетаскивание уголка эталона, всей рамки или точки контура. Для «Назад» запоминаем, как было до него
   function grab(e: ReactPointerEvent, d: Drag) {
     if (e.button > 0 || busy) return
-    e.stopPropagation()
     setTouch(e.pointerType !== 'mouse')
     onDragStart()
     start(e, d)
   }
 
+  // Лапка: правой (или средней) кнопкой фото двигается всегда, левой — когда инструмент не выбран
+  function onPanDown(e: ReactPointerEvent<HTMLDivElement>) {
+    if (zoom <= 1 || (e.button === 0 && tool) || e.button > 2) return
+    e.preventDefault()
+    capture(e.currentTarget, e.pointerId)
+    pan.current = { x: e.clientX, y: e.clientY, cx, cy }
+    setPanning(true)
+  }
+
+  function onPanMove(e: ReactPointerEvent<HTMLDivElement>) {
+    const p = pan.current
+    if (p) setCenter({ x: p.cx - (e.clientX - p.x) / s, y: p.cy - (e.clientY - p.y) / s })
+  }
+
+  function onPanUp() {
+    pan.current = null
+    setPanning(false)
+  }
+
   function onDown(e: ReactPointerEvent) {
+    // правая кнопка и «лапка» без инструмента уходят выше, в onPanDown
     if (e.button > 0 || busy || !tool) return
     const p = toImage(e)
     setTouch(e.pointerType !== 'mouse')
     setMouse(p)
     if (tool === 'marker') {
+      e.stopPropagation()
       if (!marker) onMarkerPoint(p)
-    } else if (tool === 'lasso') {
-      lassoRef.current = [p]
-      setLassoPath([p])
-      start(e, { kind: 'lasso' })
     } else if (tool === 'ruler') {
       onRuler({ a: p, b: p })
       start(e, { kind: 'ruler', a: p })
-    } else if (tool === 'area') {
-      start(e, { kind: 'tap', x: e.clientX, y: e.clientY })
+    } else {
+      start(e, { kind: 'tap', x: e.clientX, y: e.clientY, shift: e.shiftKey })
     }
   }
 
@@ -168,14 +224,7 @@ export default function ImageStage({
     setMouse(p)
     const d = drag.current
     if (!d) return
-    if (d.kind === 'lasso') {
-      const last = lassoRef.current[lassoRef.current.length - 1]
-      // точки не чаще чем раз в 2 пикселя экрана
-      if (!last || Math.hypot(p.x - last.x, p.y - last.y) > 2 * k) {
-        lassoRef.current = [...lassoRef.current, p]
-        setLassoPath(lassoRef.current)
-      }
-    } else if (d.kind === 'corner' && marker) {
+    if (d.kind === 'corner' && marker) {
       const q = [...marker] as Quad
       q[d.index] = p
       onMarkerChange(q)
@@ -197,65 +246,115 @@ export default function ImageStage({
     drag.current = null
     setDragging(false)
     if (touch) setMouse(null)
-    if (d?.kind === 'tap' && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 8) onWand(toImage(e))
-    if (d?.kind === 'lasso') {
-      const pts = lassoRef.current
-      lassoRef.current = []
-      setLassoPath(null)
-      if (pts.length >= 8) {
-        const drawn = trimOverlap(pts, 20 * k)
-        // оставляем только точки, которые меняют форму больше 0,3 пикселя экрана
-        const finish = (line: Pt[]) => simplifyPath(line, 0.3 * k)
-        // магнит: контур прилипает к краю объекта в пределах 24 пикселей экрана от линии
-        const img = imgRef.current
-        // на вогнутом крае прилипший контур бывает с петлёй в пару пикселей — вырезаем её, а не выбрасываем весь магнит
-        const snapped = img?.complete ? untangle(finish(snapToEdges(img, smoothPath(drawn, 1), W, H, 24 * k))) : null
-        // магнит не сработал (фото ещё не загрузилось) — берём линию как нарисована, сгладив дрожание руки и убрав петли
-        onLasso(snapped && !selfIntersects(snapped) ? snapped : untangle(finish(smoothPath(drawn, 1))))
-      }
+    // щелчок, а не протяжка: ставим точку многоугольника или зовём «волшебную палочку»
+    if (d?.kind === 'tap' && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 8) {
+      if (tool === 'area') onDraftPoint(toImage(e))
+      else if (tool === 'auto') onWand(toImage(e), d.shift)
     }
   }
 
   function onCancel() {
     drag.current = null
     setDragging(false)
-    lassoRef.current = []
-    setLassoPath(null)
   }
+
+  // Готовую область можно выбрать щелчком: без инструмента, в «Области» (пока ничего не рисуется) и в «Авто».
+  // В «Авто» с Shift щелчок уходит палочке — добавить к выбранной области
+  const selectable = !tool || tool === 'auto' || (tool === 'area' && !draft.length)
 
   // Контуры, эталон и линейка поверх фото. Рисуются и на фото, и в лупе — там без ручек.
   // u — пикселей фото в одном пикселе экрана для этого слоя
   function shapes(u: number, interactive: boolean) {
-    const fill = mask ? 'rgba(224,30,60,.42)' : 'rgba(224,30,60,.06)'
     const glow = { filter: 'drop-shadow(0 0 5px rgba(81,112,255,.8))' }
+    const last = draft[draft.length - 1]
     return (
       <>
-        {photo.areas.map((area) =>
-          area.closed ? (
+        {photo.areas.map((area) => {
+          if (!area.closed) return null
+          const selected = area.id === selectedId
+          const fill = mask ? 'rgba(224,30,60,.42)' : selected ? 'rgba(224,30,60,.16)' : 'rgba(224,30,60,.06)'
+          return (
             <polygon
               key={area.id}
               points={toPoints(area.points)}
               fill={fill}
               stroke={RED}
-              strokeWidth={2}
+              strokeWidth={selected ? 3 : 2}
               strokeLinejoin="round"
               vectorEffect="non-scaling-stroke"
-              pointerEvents="none"
+              className={interactive && selectable ? 'cursor-pointer' : undefined}
+              pointerEvents={interactive && selectable ? 'all' : 'none'}
+              onPointerDown={
+                interactive
+                  ? (e) => {
+                      if (e.button > 0 || busy || (tool === 'auto' && e.shiftKey)) return
+                      e.stopPropagation()
+                      onSelectArea(area.id)
+                    }
+                  : undefined
+              }
             />
-          ) : null,
+          )
+        })}
+
+        {/* многоугольник, который сейчас рисуется: пунктир по точкам и линия к курсору */}
+        {draft.length > 0 && (
+          <g pointerEvents="none">
+            <polyline
+              points={toPoints(draft)}
+              fill="none"
+              stroke={RED}
+              strokeWidth={2}
+              strokeDasharray="7 5"
+              strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke"
+            />
+            {mouse && tool === 'area' && last && (
+              <line
+                x1={last.x}
+                y1={last.y}
+                x2={mouse.x}
+                y2={mouse.y}
+                stroke={RED}
+                strokeWidth={1.5}
+                strokeDasharray="4 4"
+                vectorEffect="non-scaling-stroke"
+              />
+            )}
+          </g>
         )}
-        {lassoPath && lassoPath.length > 1 && (
-          <polyline
-            points={toPoints(lassoPath)}
-            fill={fill}
-            stroke={RED}
-            strokeWidth={2}
-            strokeDasharray="7 5"
-            strokeLinejoin="round"
-            vectorEffect="non-scaling-stroke"
-            pointerEvents="none"
-          />
-        )}
+        {draft.map((p, i) => {
+          const closer = i === 0 && draft.length >= 3
+          return (
+            <g key={i}>
+              <circle
+                cx={p.x}
+                cy={p.y}
+                r={(closer ? 8 : 5) * u}
+                fill={closer ? RED : '#04050F'}
+                stroke={closer ? '#fff' : RED}
+                strokeWidth={2}
+                vectorEffect="non-scaling-stroke"
+                pointerEvents="none"
+              />
+              {/* щелчок по первой точке замыкает контур */}
+              {interactive && closer && (
+                <circle
+                  cx={p.x}
+                  cy={p.y}
+                  r={14 * u}
+                  fill="transparent"
+                  className="cursor-pointer"
+                  onPointerDown={(e) => {
+                    if (e.button > 0) return
+                    e.stopPropagation()
+                    onCloseDraft()
+                  }}
+                />
+              )}
+            </g>
+          )
+        })}
 
         {marker && (
           <polygon
@@ -285,34 +384,37 @@ export default function ImageStage({
           </g>
         ))}
 
-        {/* ручки точек контура — квадратики 12×12, их можно тянуть. У густого контура ручки не чаще чем через 14 px экрана */}
+        {/* ручки точек выбранной области — квадратики 12×12, их можно тянуть. У густого контура ручки не чаще чем через 14 px экрана */}
         {interactive &&
           tool === 'area' &&
-          photo.areas.map((area) =>
-            sparse(area.points, 14 * u).map(({ p, i }) => (
-              <g key={`${area.id}-${i}`}>
-                <rect
-                  x={p.x - 6 * u}
-                  y={p.y - 6 * u}
-                  width={12 * u}
-                  height={12 * u}
-                  fill="#04050F"
-                  stroke={RED}
-                  strokeWidth={2}
-                  vectorEffect="non-scaling-stroke"
-                  pointerEvents="none"
-                />
-                <circle
-                  cx={p.x}
-                  cy={p.y}
-                  r={10 * u}
-                  fill="transparent"
-                  className="cursor-move"
-                  onPointerDown={(e) => grab(e, { kind: 'point', areaId: area.id, index: i })}
-                />
-              </g>
-            )),
-          )}
+          !draft.length &&
+          photo.areas
+            .filter((area) => area.id === selectedId)
+            .map((area) =>
+              sparse(area.points, 14 * u).map(({ p, i }) => (
+                <g key={`${area.id}-${i}`}>
+                  <rect
+                    x={p.x - 6 * u}
+                    y={p.y - 6 * u}
+                    width={12 * u}
+                    height={12 * u}
+                    fill="#04050F"
+                    stroke={RED}
+                    strokeWidth={2}
+                    vectorEffect="non-scaling-stroke"
+                    pointerEvents="none"
+                  />
+                  <circle
+                    cx={p.x}
+                    cy={p.y}
+                    r={10 * u}
+                    fill="transparent"
+                    className="cursor-move"
+                    onPointerDown={(e) => grab(e, { kind: 'point', areaId: area.id, index: i })}
+                  />
+                </g>
+              )),
+            )}
 
         {interactive && ruler && (
           <g pointerEvents="none">
@@ -336,8 +438,17 @@ export default function ImageStage({
   }
 
   const ready = size.w > 0 && W > 0
-  const cursor = tool === 'lasso' || tool === 'ruler' || tool === 'area' || (tool === 'marker' && !marker) ? 'crosshair' : 'default'
-  const showLens = ready && !!mouse && !!tool && !busy && (!touch || dragging)
+  // при увеличении без инструмента курсор — лапка; во время перетаскивания — сжатая лапка
+  const cursor = panning
+    ? 'grabbing'
+    : !tool
+      ? zoom > 1
+        ? 'grab'
+        : 'default'
+      : tool === 'marker' && marker
+        ? 'default'
+        : 'crosshair'
+  const showLens = ready && !!mouse && !!tool && !busy && !panning && (!touch || dragging)
 
   // подпись линейки: сантиметры по эталону с поправкой на перспективу, без эталона — пиксели
   let rulerText = ''
@@ -348,31 +459,35 @@ export default function ImageStage({
 
   return (
     <StageFrame ref={frameRef}>
-      {ready && (
-        <div className="absolute shadow-[0_20px_60px_rgba(0,0,0,.6)]" style={{ left, top, width: W * s, height: H * s }}>
-          <img
-            ref={imgRef}
-            src={photo.url}
-            alt={photo.name}
-            draggable={false}
-            className="absolute inset-0 size-full bg-lab-paper select-none"
-          />
-          <svg
-            ref={svgRef}
-            viewBox={`0 0 ${W} ${H}`}
-            className="absolute inset-0 size-full overflow-visible"
-            style={{ cursor, touchAction: tool ? 'none' : 'pan-y pinch-zoom' }}
-            onPointerDown={onDown}
-            onPointerMove={onMove}
-            onPointerUp={onUp}
-            onPointerCancel={onCancel}
-            onPointerLeave={() => !dragging && setMouse(null)}
-          >
-            {shapes(k, true)}
-          </svg>
-          {busy && <Scan />}
-        </div>
-      )}
+      <div
+        className="absolute inset-0"
+        style={{ cursor }}
+        onPointerDown={onPanDown}
+        onPointerMove={onPanMove}
+        onPointerUp={onPanUp}
+        onPointerCancel={onPanUp}
+        onContextMenu={(e) => e.preventDefault()}
+      >
+        {ready && (
+          <div className="absolute shadow-[0_20px_60px_rgba(0,0,0,.6)]" style={{ left, top, width: W * s, height: H * s }}>
+            <img src={photo.url} alt={photo.name} draggable={false} className="absolute inset-0 size-full bg-lab-paper select-none" />
+            <svg
+              ref={svgRef}
+              viewBox={`0 0 ${W} ${H}`}
+              className="absolute inset-0 size-full overflow-visible"
+              style={{ cursor, touchAction: tool ? 'none' : 'pan-y pinch-zoom' }}
+              onPointerDown={onDown}
+              onPointerMove={onMove}
+              onPointerUp={onUp}
+              onPointerCancel={onCancel}
+              onPointerLeave={() => !dragging && setMouse(null)}
+            >
+              {shapes(k, true)}
+            </svg>
+            {busy && <Scan />}
+          </div>
+        )}
+      </div>
 
       {ready && ruler && rulerText && Math.hypot(ruler.b.x - ruler.a.x, ruler.b.y - ruler.a.y) > 0 && (
         <div

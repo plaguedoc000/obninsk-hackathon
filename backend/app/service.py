@@ -6,6 +6,7 @@ import hashlib
 import io
 import json
 import zipfile
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
@@ -341,24 +342,26 @@ def compare(store: Store, image_ids: list[str] | None = None, group: str | None 
 
 # ---------------------------------------------------------------- экспорт
 
+# Колонки CSV для Excel. Остальные подробности измерения — в report.json архива
 CSV_COLUMNS = [
     ("image_filename", "Файл"),
-    ("image_id", "ID фото"),
-    ("group", "Группа"),
-    ("measurement_id", "ID измерения"),
-    ("label", "Подпись"),
-    ("shape", "Фигура"),
     ("area_mm2", "Площадь, мм²"),
     ("area_cm2", "Площадь, см²"),
     ("perimeter_mm", "Периметр, мм"),
-    ("uncertainty_pct", "Погрешность, ±%"),
-    ("method", "Метод"),
     ("px_per_mm", "Масштаб, пикс/мм"),
-    ("marker_size_mm", "Эталон, мм"),
-    ("calibration", "Калибровка"),
-    ("warnings", "Предупреждения"),
     ("measured_at", "Дата"),
 ]
+
+
+def _local_date(iso: str, tz_minutes: int | None) -> str:
+    """ISO-время сервера -> «16.10.2026 21:24» в часовом поясе пользователя (смещение от UTC в минутах)."""
+    try:
+        t = datetime.fromisoformat(iso)
+    except (TypeError, ValueError):
+        return iso or ""
+    if tz_minutes is not None:
+        t = t.astimezone(timezone(timedelta(minutes=tz_minutes)))
+    return t.strftime("%d.%m.%Y %H:%M")
 
 
 def export_rows(store: Store, image_ids: list[str] | None = None, group: str | None = None) -> list[dict]:
@@ -389,7 +392,7 @@ def export_rows(store: Store, image_ids: list[str] | None = None, group: str | N
     return rows
 
 
-def to_csv(rows: list[dict], sep: str = ";", decimal: str = ",") -> bytes:
+def to_csv(rows: list[dict], sep: str = ";", decimal: str = ",", tz_minutes: int | None = None) -> bytes:
     buf = io.StringIO()
     wr = csv.writer(buf, delimiter=sep, lineterminator="\r\n")
     wr.writerow([title for _, title in CSV_COLUMNS])
@@ -397,6 +400,8 @@ def to_csv(rows: list[dict], sep: str = ";", decimal: str = ",") -> bytes:
     def fmt(v, key):
         if v is None:
             return ""
+        if key == "measured_at":
+            return _local_date(v, tz_minutes)
         if isinstance(v, float):
             digits = {"area_mm2": 1, "area_cm2": 3, "perimeter_mm": 1, "uncertainty_pct": 1, "px_per_mm": 4, "marker_size_mm": 2}.get(key, 3)
             s = f"{v:.{digits}f}"

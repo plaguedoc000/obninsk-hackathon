@@ -133,56 +133,6 @@ export function perimeterMm(points: Pt[], marker: Quad) {
   return mm.reduce((s, p, i) => s + dist(p, mm[(i + 1) % mm.length]), 0)
 }
 
-// Сглаживание линии лассо скользящим средним: убирает дрожание руки
-export function smoothPath(points: Pt[], r = 2): Pt[] {
-  const n = points.length
-  if (n < 2 * r + 1) return points
-  return points.map((_, i) => {
-    let x = 0
-    let y = 0
-    for (let j = -r; j <= r; j++) {
-      const p = points[(i + j + n) % n]
-      x += p.x
-      y += p.y
-    }
-    return { x: x / (2 * r + 1), y: y / (2 * r + 1) }
-  })
-}
-
-function segDist(p: Pt, a: Pt, b: Pt) {
-  const dx = b.x - a.x
-  const dy = b.y - a.y
-  const len2 = dx * dx + dy * dy
-  if (!len2) return dist(p, a)
-  const t = clamp(((p.x - a.x) * dx + (p.y - a.y) * dy) / len2, 0, 1)
-  return dist(p, { x: a.x + t * dx, y: a.y + t * dy })
-}
-
-// Упрощение линии (Рамер — Дуглас — Пекер): оставляет только точки, которые меняют форму больше eps
-export function simplifyPath(points: Pt[], eps: number): Pt[] {
-  if (points.length < 3) return points
-  const keep = new Uint8Array(points.length)
-  keep[0] = keep[points.length - 1] = 1
-  const stack: [number, number][] = [[0, points.length - 1]]
-  while (stack.length) {
-    const [a, b] = stack.pop()!
-    let maxD = 0
-    let idx = -1
-    for (let i = a + 1; i < b; i++) {
-      const d = segDist(points[i], points[a], points[b])
-      if (d > maxD) {
-        maxD = d
-        idx = i
-      }
-    }
-    if (idx > 0 && maxD > eps) {
-      keep[idx] = 1
-      stack.push([a, idx], [idx, b])
-    }
-  }
-  return points.filter((_, i) => keep[i])
-}
-
 // Пересекаются ли отрезки ab и cd (касание концами не считается)
 function crosses(a: Pt, b: Pt, c: Pt, d: Pt) {
   const side = (p: Pt, q: Pt, r: Pt) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x)
@@ -199,55 +149,6 @@ export function selfIntersects(points: Pt[]) {
     }
   }
   return false
-}
-
-// Точка пересечения отрезков ab и cd (они точно пересекаются)
-function intersection(a: Pt, b: Pt, c: Pt, d: Pt): Pt {
-  const t = ((c.x - a.x) * (d.y - c.y) - (c.y - a.y) * (d.x - c.x)) / ((b.x - a.x) * (d.y - c.y) - (b.y - a.y) * (d.x - c.x))
-  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }
-}
-
-// Убирает петли из замкнутого контура: где он пересёк сам себя, вырезает меньший кусок между пересечениями.
-// Магнит на вогнутом крае сводит соседние точки в одно место, и они перекрещиваются петлёй в пару пикселей —
-// такую петлю выгоднее вырезать, чем выбрасывать весь прилипший контур
-export function untangle(points: Pt[]): Pt[] {
-  let pts = points
-  for (let guard = 0; guard < 500; guard++) {
-    const n = pts.length
-    if (n < 4) return pts
-    let hit: [number, number] | null = null
-    for (let i = 0; i < n && !hit; i++) {
-      for (let j = i + 2; j < n; j++) {
-        if (i === 0 && j === n - 1) continue
-        if (crosses(pts[i], pts[i + 1], pts[j], pts[(j + 1) % n])) {
-          hit = [i, j]
-          break
-        }
-      }
-    }
-    if (!hit) return pts
-    const [i, j] = hit
-    const x = intersection(pts[i], pts[i + 1], pts[j], pts[(j + 1) % n])
-    pts = j - i <= n / 2 ? [...pts.slice(0, i + 1), x, ...pts.slice(j + 1)] : [x, ...pts.slice(i + 1, j + 1)]
-  }
-  return pts
-}
-
-// Лассо часто «перелетает» за начальную точку. Обрезаем линию там, где конец пересёк начало
-// или, если не пересёк, прошёл ближе всего к нему (ближе gap)
-export function trimOverlap(points: Pt[], gap: number): Pt[] {
-  const n = points.length
-  for (let j = n - 2; j > n / 2; j--) {
-    for (let i = 0; i < n / 2 && i < j - 1; i++) {
-      const [a, b, c, d] = [points[i], points[i + 1], points[j], points[j + 1]]
-      if (!crosses(a, b, c, d)) continue
-      const t = ((c.x - a.x) * (d.y - c.y) - (c.y - a.y) * (d.x - c.x)) / ((b.x - a.x) * (d.y - c.y) - (b.y - a.y) * (d.x - c.x))
-      return [{ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }, ...points.slice(i + 1, j + 1)]
-    }
-  }
-  let end = n - 1
-  for (let j = Math.ceil(n * 0.6); j < n; j++) if (dist(points[j], points[0]) < dist(points[end], points[0])) end = j
-  return dist(points[end], points[0]) < gap ? points.slice(0, end + 1) : points
 }
 
 // Упорядочивает углы по часовой стрелке, первым — левый верхний

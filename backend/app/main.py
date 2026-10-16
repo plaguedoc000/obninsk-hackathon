@@ -114,6 +114,7 @@ class CompareRequest(BaseModel):
 class AutocontourRequest(BaseModel):
     point: Point = Field(..., description="Точка внутри объекта [x, y]")
     tolerance: float = Field(25, ge=1, le=100, description="Чувствительность к цвету (больше — захватывает больше)")
+    union: Optional[list[list[Point]]] = Field(None, max_length=50, description="Уже выделенные области: новая заливка объединится с ними")
 
 
 def _ids(s: Optional[str]) -> Optional[list[str]]:
@@ -267,7 +268,7 @@ def delete_measurement(image_id: str, mid: str):
 @app.post("/api/images/{image_id}/autocontour", tags=["Измерения"], summary="Волшебная палочка (бета): обвести объект по клику")
 def auto_contour(image_id: str, body: AutocontourRequest):
     meta = store.get(image_id)
-    res = autocontour(store.load_bgr(image_id), body.point, body.tolerance)
+    res = autocontour(store.load_bgr(image_id), body.point, body.tolerance, union=body.union)
     if meta.get("calibration"):
         prev = service.add_measurement(store, image_id, "polygon", res["points_px"], save=False)
         res["preview"] = {k: prev.get(k) for k in ("area_mm2", "area_cm2", "perimeter_mm", "uncertainty_pct", "method")}
@@ -301,9 +302,10 @@ def compare(body: CompareRequest):
 def export_csv(image_ids: Optional[str] = Query(None, description="id через запятую; пусто — все"),
                group: Optional[str] = None,
                sep: Literal[";", ",", "tab"] = ";",
-               decimal: Literal[",", "."] = ","):
+               decimal: Literal[",", "."] = ",",
+               tz: Optional[int] = Query(None, ge=-840, le=840, description="Часовой пояс для даты: минуты от UTC (Москва — 180)")):
     rows = service.export_rows(store, _ids(image_ids), group)
-    data = service.to_csv(rows, "\t" if sep == "tab" else sep, decimal)
+    data = service.to_csv(rows, "\t" if sep == "tab" else sep, decimal, tz)
     return Response(data, media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": 'attachment; filename="measurements.csv"'})
 

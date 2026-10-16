@@ -26,5 +26,5 @@ export type Photo = {
   areas: Area[]
 }
 
-// marker — эталон, area — область по щелчку и правка точек, lasso — обвести, ruler — линейка
-export type Tool = 'marker' | 'area' | 'lasso' | 'ruler'
+// marker — эталон, area — многоугольник по точкам, auto — область «волшебной палочкой», ruler — линейка
+export type Tool = 'marker' | 'area' | 'auto' | 'ruler'

@@ -107,14 +107,16 @@ export const api = {
 
   deleteArea: (id: string, mid: string) => send(`/images/${id}/measurements/${mid}`, { method: 'DELETE' }),
 
-  // «Волшебная палочка»: щелчок внутри объекта — сервер находит его контур
-  autocontour: (id: string, point: { x: number; y: number }) =>
-    request<{ points_px: [number, number][]; warnings: ApiWarning[] }>(`/images/${id}/autocontour`, {
+  // «Волшебная палочка»: щелчок внутри объекта — сервер находит его контур.
+  // union — уже выделенные области: новая заливка объединится с ними (контуров может стать несколько)
+  autocontour: (id: string, point: { x: number; y: number }, union?: { x: number; y: number }[][]) =>
+    request<{ points_px: [number, number][]; contours_px: [number, number][][]; warnings: ApiWarning[] }>(`/images/${id}/autocontour`, {
       method: 'POST',
-      body: JSON.stringify({ point: [point.x, point.y] }),
+      body: JSON.stringify({ point: [point.x, point.y], union: union?.map(pairs) }),
     }),
 
-  exportCsv: async (list: string[]) => (await send(`/export.csv?${ids(list)}`)).blob(),
+  // дата в таблице — по часам пользователя
+  exportCsv: async (list: string[]) => (await send(`/export.csv?${ids(list)}&tz=${-new Date().getTimezoneOffset()}`)).blob(),
 
   // Архив: CSV, отчёт JSON и фото в общем масштабе с сеткой 1 см
   exportZip: async (list: string[]) => (await send(`/export.zip?${ids(list)}`)).blob(),

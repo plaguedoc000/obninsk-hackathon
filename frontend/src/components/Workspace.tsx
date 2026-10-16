@@ -3,10 +3,23 @@ import type { Tool } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
 // Каркас «Лаборатории»: слева инструменты, в центре фото, справа список фото.
+// Правая панель живёт на уровне страницы, поэтому при смене фото её прокрутка не сбрасывается.
 // На телефоне всё идёт столбиком, а инструменты становятся строкой над фото
-export default function Workspace({ rail, panel, children }: { rail: ReactNode; panel: ReactNode; children: ReactNode }) {
+export function Shell({ panel, children }: { panel: ReactNode; children: ReactNode }) {
   return (
     <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[88px_minmax(0,1fr)_400px] lg:overflow-hidden">
+      {children}
+      <aside className="flex flex-col gap-4 border-t border-lab-sky/20 bg-[rgb(4_5_15/.62)] px-[26px] py-5 lg:min-h-0 lg:overflow-y-auto lg:border-t-0 lg:border-l">
+        {panel}
+      </aside>
+    </div>
+  )
+}
+
+// Левая колонка с инструментами и середина с фото — внутри Shell
+export default function Workspace({ rail, children }: { rail: ReactNode; children: ReactNode }) {
+  return (
+    <>
       <nav
         aria-label="Инструменты"
         className="flex items-center gap-2.5 overflow-x-auto border-b border-lab-sky/20 px-4 py-3 lg:flex-col lg:overflow-visible lg:border-r lg:border-b-0 lg:px-0 lg:py-5"
@@ -14,10 +27,7 @@ export default function Workspace({ rail, panel, children }: { rail: ReactNode; 
         {rail}
       </nav>
       <section className="flex min-w-0 flex-col gap-3 px-3.5 pt-[22px] pb-[18px] lg:min-h-0">{children}</section>
-      <aside className="flex flex-col gap-4 border-t border-lab-sky/20 bg-[rgb(4_5_15/.62)] px-[26px] py-5 lg:min-h-0 lg:overflow-y-auto lg:border-t-0 lg:border-l">
-        {panel}
-      </aside>
-    </div>
+    </>
   )
 }
 
@@ -38,10 +48,11 @@ type RailButtonProps = {
   active?: boolean
   disabled?: boolean
   title?: string
+  half?: boolean
 }
 
-// Кнопка инструмента 60×60: значок, подпись и буква горячей клавиши в углу
-export function RailButton({ label, hotkey, tone, icon, onClick, active, disabled, title }: RailButtonProps) {
+// Кнопка инструмента 60×60: значок, подпись и буква горячей клавиши в углу. half — низкая кнопка 60×30
+export function RailButton({ label, hotkey, tone, icon, onClick, active, disabled, title, half }: RailButtonProps) {
   const t = TONES[tone]
   return (
     <button
@@ -50,7 +61,10 @@ export function RailButton({ label, hotkey, tone, icon, onClick, active, disable
       disabled={disabled}
       title={title}
       aria-pressed={active}
-      className="relative flex size-[60px] shrink-0 flex-col items-center justify-center gap-[7px] border text-lab-text outline-none focus-visible:ring-2 focus-visible:ring-lab-blue disabled:cursor-default disabled:opacity-30"
+      className={cn(
+        'relative flex w-[60px] shrink-0 items-center justify-center border text-lab-text outline-none focus-visible:ring-2 focus-visible:ring-lab-blue disabled:cursor-default disabled:opacity-30',
+        half ? 'h-[30px] gap-[5px]' : 'h-[60px] flex-col gap-[7px]',
+      )}
       style={{
         borderColor: active ? t.color : 'rgba(100,149,237,.25)',
         background: active ? t.bg : 'transparent',
@@ -58,11 +72,13 @@ export function RailButton({ label, hotkey, tone, icon, onClick, active, disable
       }}
     >
       <span
-        className="size-[18px] border-2"
+        className={cn('border-2', half ? 'size-3' : 'size-[18px]')}
         style={{ borderStyle: icon.style, borderColor: t.color, borderRadius: icon.radius, background: icon.fill ?? 'transparent' }}
       />
       <span className="font-mono text-[9px] font-medium tracking-[.04em]">{label}</span>
-      <span className="absolute top-[3px] right-1 font-mono text-[9px] font-medium text-lab-text/45">{hotkey}</span>
+      <span className={cn('absolute right-1 font-mono font-medium text-lab-text/45', half ? 'top-px text-[7px]' : 'top-[3px] text-[9px]')}>
+        {hotkey}
+      </span>
     </button>
   )
 }
@@ -71,16 +87,20 @@ type ToolRailProps = {
   tool?: Tool | null
   mask?: boolean
   canUndo?: boolean
+  canDelete?: boolean
   zoom?: number
   disabled?: boolean
   onTool?: (tool: Tool) => void
   onUndo?: () => void
+  onDelete?: () => void
   onMask?: () => void
   onZoom?: (step: 1 | -1) => void
 }
 
+const CROSS = 'linear-gradient(45deg,transparent 42%,#E01E3C 42%,#E01E3C 58%,transparent 58%),linear-gradient(-45deg,transparent 42%,#E01E3C 42%,#E01E3C 58%,transparent 58%)'
+
 // Панель инструментов слева. Без фото все кнопки бледные и не нажимаются
-export function ToolRail({ tool = null, mask, canUndo, zoom = 1, disabled, onTool, onUndo, onMask, onZoom }: ToolRailProps) {
+export function ToolRail({ tool = null, mask, canUndo, canDelete, zoom = 1, disabled, onTool, onUndo, onDelete, onMask, onZoom }: ToolRailProps) {
   return (
     <>
       <RailButton
@@ -93,15 +113,38 @@ export function ToolRail({ tool = null, mask, canUndo, zoom = 1, disabled, onToo
         onClick={() => onTool?.('marker')}
         title="Эталон: подвиньте уголки синей рамки на углы квадрата 1×1 см. Нет рамки — щёлкните 4 угла квадрата"
       />
+      {/* «Авто» — низкая кнопка вплотную под «Областью» */}
+      <div className="flex shrink-0 flex-col">
+        <RailButton
+          label="ОБЛАСТЬ"
+          hotkey="A"
+          tone="red"
+          icon={{ style: 'dashed', radius: '50%' }}
+          active={tool === 'area'}
+          disabled={disabled}
+          onClick={() => onTool?.('area')}
+          title="Область: щёлкайте по краю объекта точка за точкой. Замкнуть — щелчок по первой точке или Enter"
+        />
+        <RailButton
+          half
+          label="АВТО"
+          hotkey="W"
+          tone="red"
+          icon={{ style: 'dashed', radius: '50%', fill: 'radial-gradient(circle,#E01E3C 32%,transparent 36%)' }}
+          active={tool === 'auto'}
+          disabled={disabled}
+          onClick={() => onTool?.('auto')}
+          title="Авто: щёлкните внутри объекта — контур найдётся сам. Shift+щелчок — добавить к выбранной области"
+        />
+      </div>
       <RailButton
-        label="ОБЛАСТЬ"
-        hotkey="A"
+        label="УДАЛИТЬ"
+        hotkey="DEL"
         tone="red"
-        icon={{ style: 'dashed', radius: '50%' }}
-        active={tool === 'area'}
-        disabled={disabled}
-        onClick={() => onTool?.('area')}
-        title="Область: щёлкните внутри объекта — контур найдётся сам. Точки контура можно двигать"
+        icon={{ style: 'solid', radius: '2px', fill: CROSS }}
+        disabled={disabled || !canDelete}
+        onClick={onDelete}
+        title="Удалить выбранную область (Delete)"
       />
       <RailButton
         label="НАЗАД"
@@ -121,17 +164,7 @@ export function ToolRail({ tool = null, mask, canUndo, zoom = 1, disabled, onToo
         active={mask}
         disabled={disabled}
         onClick={onMask}
-        title="Маска: залить область цветом"
-      />
-      <RailButton
-        label="ЛАССО"
-        hotkey="L"
-        tone="red"
-        icon={{ style: 'dashed', radius: '40% 60% 55% 45%' }}
-        active={tool === 'lasso'}
-        disabled={disabled}
-        onClick={() => onTool?.('lasso')}
-        title="Лассо: зажмите и обведите объект примерно — контур прилипнет к краю"
+        title="Маска: залить области цветом"
       />
       <RailButton
         label="ЛИНЕЙКА"
@@ -153,6 +186,7 @@ export function ToolRail({ tool = null, mask, canUndo, zoom = 1, disabled, onToo
           'flex shrink-0 items-center border border-lab-sky/25 font-mono text-xs font-medium lg:w-[60px] lg:flex-col',
           disabled && 'pointer-events-none opacity-30',
         )}
+        title="Масштаб: Ctrl (⌘) + колесо мыши. При увеличении фото двигается правой кнопкой мыши"
       >
         <button
           type="button"
@@ -217,7 +251,7 @@ export function StageTitle({ name, normed }: { name: string; normed?: boolean })
   )
 }
 
-// Строка под фото: «ПЛОЩАДЬ  S = 15,51 см²»
+// Строка под фото: «ПЛОЩАДЬ  S = 1551,0 мм²»
 export function AreaRow({ value }: { value: string }) {
   return (
     <div className="relative flex h-8 shrink-0 items-center font-mono font-medium text-lab-text/75">
@@ -226,7 +260,7 @@ export function AreaRow({ value }: { value: string }) {
         className="pointer-events-none absolute top-[-3px] left-[101px] border border-lab-red bg-lab-bg px-3 py-2 text-[15px] font-semibold whitespace-nowrap text-white shadow-[0_0_20px_rgba(224,30,60,.5)]"
         aria-live="polite"
       >
-        S = {value} см²
+        S = {value} мм²
       </div>
     </div>
   )
