@@ -1,19 +1,19 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { ArrowLeft, ImageDown, ZoomIn, ZoomOut } from 'lucide-react'
+import { ArrowLeft, FileArchive, ImageDown, ZoomIn, ZoomOut } from 'lucide-react'
 import { toast } from 'sonner'
 import Workspace, { BigValue, CtaButton, HudFrame, PanelLabel, RailButton, RailDivider, StatRow } from '@/components/Workspace'
 import { fmt } from '@/lib/format'
-import { areaMm2, markerQuality } from '@/lib/geometry'
+import { scaleOf, totalsOf } from '@/lib/measure'
 import { MARKER_COLOR, areaColor } from '@/lib/photos'
 import { exportComparePng } from '@/lib/report'
 import type { Photo } from '@/lib/types'
 
-type Props = { photos: Photo[]; strip: ReactNode; onClose: () => void }
+type Props = { photos: Photo[]; strip: ReactNode; onClose: () => void; onZip: () => void }
 
 const clampZoom = (z: number) => Math.min(2.5, Math.max(0.25, Math.round(z * 100) / 100))
 
 // Все фото в одном масштабе: 1 см на экране одинаковый, поэтому квадраты-эталоны одного размера
-export default function CompareView({ photos, strip, onClose }: Props) {
+export default function CompareView({ photos, strip, onClose, onZip }: Props) {
   const boxRef = useRef<HTMLDivElement>(null)
   const [boxW, setBoxW] = useState(0)
   const [zoom, setZoom] = useState(1)
@@ -30,8 +30,8 @@ export default function CompareView({ photos, strip, onClose }: Props) {
   const items = photos
     .filter((p) => p.marker)
     .map((photo) => {
-      const ppm = markerQuality(photo.marker!).ppm
-      const total = photo.areas.filter((a) => a.closed).reduce((s, a) => s + areaMm2(a.points, photo.marker!), 0)
+      const ppm = scaleOf(photo)!.ppm
+      const total = totalsOf(photo).mm2
       return { photo, ppm, wmm: photo.width / ppm, total }
     })
   const refPpm = Math.max(...items.map((i) => i.ppm))
@@ -58,6 +58,7 @@ export default function CompareView({ photos, strip, onClose }: Props) {
         <>
           <RailButton label="НАЗАД" icon={<ArrowLeft />} onClick={onClose} title="Вернуться к фото" />
           <RailButton label="PNG" icon={<ImageDown />} onClick={download} disabled={exporting} title="Скачать картинку сравнения" />
+          <RailButton label="ZIP" icon={<FileArchive />} onClick={onZip} title="Архив с сервера: CSV и фото в общем масштабе с сеткой 1 см" />
           <RailDivider />
           <RailButton label="КРУПНЕЕ" icon={<ZoomIn />} onClick={() => setZoom((z) => clampZoom(z + 0.25))} disabled={zoom >= 2.5} />
           <RailButton label="МЕЛЬЧЕ" icon={<ZoomOut />} onClick={() => setZoom((z) => clampZoom(z - 0.25))} disabled={zoom <= 0.25} />

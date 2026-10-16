@@ -1,52 +1,7 @@
 import { fmt, today } from './format'
-import { areaMm2, markerQuality, shoelace } from './geometry'
+import { scaleOf, totalsOf } from './measure'
 import { MARKER_COLOR, areaColor, loadImage } from './photos'
 import type { Photo } from './types'
-
-const SOURCE: Record<string, string> = { auto: 'найден автоматически', manual: 'указан вручную' }
-
-// Для Excel: без пробелов между разрядами, иначе число станет текстом
-const num = (value: number, digits: number) => value.toFixed(digits).replace('.', ',')
-
-// CSV для Excel: разделитель «;», запятая в дробях, BOM, чтобы кириллица открылась без кракозябр
-export function buildCsv(photos: Photo[]) {
-  const rows: string[][] = [
-    [
-      'Файл',
-      'Эталон',
-      'Пикселей в 1 мм',
-      'Погрешность масштаба, %',
-      'Область',
-      'Точек',
-      'Площадь, пикс²',
-      'Площадь, мм²',
-      'Погрешность площади, %',
-    ],
-  ]
-  for (const photo of photos) {
-    const q = photo.marker ? markerQuality(photo.marker) : null
-    const base = [
-      photo.name,
-      photo.markerSource ? SOURCE[photo.markerSource] : 'не найден',
-      q ? num(q.ppm, 2) : '',
-      q ? num(q.errorPct, 1) : '',
-    ]
-    const areas = photo.areas.filter((a) => a.closed)
-    if (!areas.length) rows.push([...base, '', '', '', '', ''])
-    for (const area of areas) {
-      rows.push([
-        ...base,
-        `Область ${photo.areas.indexOf(area) + 1}`,
-        String(area.points.length),
-        num(shoelace(area.points), 0),
-        photo.marker ? num(areaMm2(area.points, photo.marker), 1) : '',
-        q ? num(q.areaErrorPct, 1) : '',
-      ])
-    }
-  }
-  const cell = (v: string) => (/[;"\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v)
-  return '﻿' + rows.map((r) => r.map(cell).join(';')).join('\r\n')
-}
 
 export function downloadBlob(name: string, blob: Blob) {
   const url = URL.createObjectURL(blob)
@@ -59,15 +14,11 @@ export function downloadBlob(name: string, blob: Blob) {
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
-export function downloadCsv(photos: Photo[]) {
-  downloadBlob(`отчёт-площадь-${today()}.csv`, new Blob([buildCsv(photos)], { type: 'text/csv;charset=utf-8' }))
-}
-
 // Одна картинка со всеми фото в одном масштабе: эталоны одинакового размера
 export async function exportComparePng(photos: Photo[]) {
   const items = photos
     .filter((p) => p.marker)
-    .map((photo) => ({ photo, ppm: markerQuality(photo.marker!).ppm }))
+    .map((photo) => ({ photo, ppm: scaleOf(photo)!.ppm }))
   if (!items.length) return
 
   // пикселей на 1 мм в итоговой картинке: не больше самого чёткого фото и не шире ~6000 пикселей
@@ -132,9 +83,7 @@ export async function exportComparePng(photos: Photo[]) {
       ctx.stroke()
     })
 
-    const total = photo.areas
-      .filter((a) => a.closed)
-      .reduce((sum, a) => sum + areaMm2(a.points, photo.marker!), 0)
+    const total = totalsOf(photo).mm2
     ctx.fillStyle = '#23313d'
     ctx.font = font(20, 600)
     ctx.fillText(photo.name, x, top + maxH + 34 * u, w)

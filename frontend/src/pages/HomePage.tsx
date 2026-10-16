@@ -7,10 +7,13 @@ import Editor from '@/components/Editor'
 import EmptyState from '@/components/EmptyState'
 import PhotoList from '@/components/PhotoList'
 import Workspace, { AreaIcon, HudFrame, MarkerIcon, RailButton } from '@/components/Workspace'
+import { api } from '@/lib/api'
 import { makeDemoFiles } from '@/lib/demo'
-import { analyzePhoto, createPhoto, isImageFile } from '@/lib/photos'
-import { downloadCsv } from '@/lib/report'
+import { today } from '@/lib/format'
+import { createPhoto, isImageFile, photoFromServer, scaleFromServer, workspaceId } from '@/lib/photos'
+import { downloadBlob } from '@/lib/report'
 import type { Photo } from '@/lib/types'
+import { useServerSync } from '@/lib/useServerSync'
 import { cn } from '@/lib/utils'
 
 type Patch = Partial<Photo> | ((p: Photo) => Partial<Photo>)
@@ -29,17 +32,38 @@ export default function HomePage() {
 
   const active = photos.find((p) => p.id === activeId) ?? photos[0] ?? null
   const comparePhotos = compareIds ? photos.filter((p) => compareIds.includes(p.id) && p.marker) : []
-  const hasPhotos = photos.length > 0
 
   const updatePhoto = useCallback((id: string, patch: Patch) => {
     setPhotos((prev) => prev.map((p) => (p.id === id ? { ...p, ...(typeof patch === 'function' ? patch(p) : patch) } : p)))
   }, [])
 
+  const sync = useServerSync(photos, updatePhoto)
+  const photosRef = useRef(photos)
+  useEffect(() => {
+    photosRef.current = photos
+  }, [photos])
+
+  // Фото этого браузера уже лежат на сервере — показываем их после перезагрузки страницы
+  const restored = useRef(false)
+  useEffect(() => {
+    if (restored.current) return
+    restored.current = true
+    api
+      .listImages(workspaceId())
+      .then(({ images }) => {
+        if (!images.length) return
+        const items = images.map(photoFromServer)
+        items.forEach(({ photo, links }) => sync.register(photo, links))
+        setPhotos((prev) => [...items.map((i) => i.photo), ...prev])
+      })
+      .catch((e: Error) => toast.error(e.message))
+  }, [sync])
+
   const addFiles = useCallback(
     async (files: File[]) => {
       const images = files.filter(isImageFile)
       if (!images.length) {
-        if (files.length) toast.error('Среди файлов нет фото. Выберите JPG или PNG')
+        if (files.length) toast.error('Среди файлов нет фото. Выберите JPG, PNG, TIFF или HEIC')
         return
       }
       const created = images.map(createPhoto)
@@ -50,23 +74,39 @@ export default function HomePage() {
 
       const failed: string[] = []
       let missing = 0
-      // по одному, чтобы браузер не подвисал на больших фото
-      for (const photo of created) {
+      // по одному: сервер на каждом фото ищет эталон
+      for (const [i, photo] of created.entries()) {
         try {
-          const { width, height, marker } = await analyzePhoto(photo.url)
-          updatePhoto(photo.id, { width, height, marker, markerSource: marker ? 'auto' : null, status: 'ready' })
-          if (!marker) missing++
-        } catch {
-          failed.push(photo.name)
+          const { images: [image] } = await api.uploadImage(images[i], workspaceId())
+          URL.revokeObjectURL(photo.url)
+          // фото удалили, пока оно загружалось
+          if (!photosRef.current.some((p) => p.id === photo.id)) {
+            api.deleteImage(image.id).catch(() => {})
+            continue
+          }
+          const ready: Photo = {
+            ...photo,
+            serverId: image.id,
+            url: image.urls.file,
+            width: image.width,
+            height: image.height,
+            status: 'ready',
+            ...scaleFromServer(image),
+          }
+          sync.register(ready)
+          updatePhoto(photo.id, ready)
+          if (!ready.marker) missing++
+        } catch (e) {
+          failed.push(`${photo.name} — ${e instanceof Error ? e.message : 'ошибка'}`)
           setPhotos((prev) => prev.filter((p) => p.id !== photo.id))
         }
       }
       const ok = created.length - failed.length
-      if (failed.length) toast.error(`Не удалось открыть: ${failed.join(', ')}. Сохраните фото в JPG или PNG`)
+      if (failed.length) toast.error(`Не удалось загрузить: ${failed.join('; ')}`)
       if (missing) toast.warning(`Эталон не найден на ${missing} из ${ok} фото — укажите его вручную`)
       else if (ok) toast.success(ok === 1 ? 'Эталон найден' : `Эталон найден на всех фото: ${ok}`)
     },
-    [updatePhoto],
+    [updatePhoto, sync],
   )
 
   // Вставка фото из буфера обмена
@@ -78,14 +118,6 @@ export default function HomePage() {
     window.addEventListener('paste', onPaste)
     return () => window.removeEventListener('paste', onPaste)
   }, [addFiles])
-
-  // Фото хранятся только во вкладке: предупреждаем перед закрытием
-  useEffect(() => {
-    if (!hasPhotos) return
-    const onLeave = (e: BeforeUnloadEvent) => e.preventDefault()
-    window.addEventListener('beforeunload', onLeave)
-    return () => window.removeEventListener('beforeunload', onLeave)
-  }, [hasPhotos])
 
   useEffect(() => {
     if (!selecting) return
@@ -103,14 +135,20 @@ export default function HomePage() {
     }
   }
 
-  async function redetect(photo: Photo) {
-    const { marker } = await analyzePhoto(photo.url)
-    if (!marker) {
-      toast.error('Квадрат не найден. Поставьте эталон вручную')
-      return
-    }
-    updatePhoto(photo.id, { marker, markerSource: 'auto' })
-    toast.success('Эталон найден')
+  function redetect(photo: Photo) {
+    const serverId = photo.serverId
+    if (!serverId) return
+    sync.run(photo.id, async () => {
+      const image = await api.detect(serverId)
+      if (!image.detection?.found || !image.calibration) {
+        toast.error('Квадрат не найден. Поставьте эталон вручную')
+        return
+      }
+      // поиск сам калибрует масштаб по найденному квадрату
+      sync.applyImage(photo.id, image)
+      updatePhoto(photo.id, { markerSource: 'auto' })
+      toast.success('Эталон найден')
+    })
   }
 
   function removePhoto(id: string) {
@@ -124,15 +162,26 @@ export default function HomePage() {
       const left = compareIds.filter((x) => x !== id)
       setCompareIds(left.length >= 2 ? left : null)
     }
+    // с сервера удаляем, только когда кнопка «Вернуть» исчезла
+    let undone = false
+    const purge = () => {
+      if (undone || !photo.serverId) return
+      sync.forget(photo.id)
+      api.deleteImage(photo.serverId).catch(() => {})
+    }
     toast(`Фото «${photo.name}» удалено`, {
+      onAutoClose: purge,
+      onDismiss: purge,
       action: {
         label: 'Вернуть',
-        onClick: () =>
+        onClick: () => {
+          undone = true
           setPhotos((prev) => {
             const next = [...prev]
             next.splice(Math.min(index, next.length), 0, photo)
             return next
-          }),
+          })
+        },
       },
     })
   }
@@ -176,14 +225,28 @@ export default function HomePage() {
     setSelecting(false)
   }
 
-  function saveReport() {
-    if (!hasPhotos) {
+  // Отчёт собирает сервер: дожидаемся, пока туда дойдут последние правки
+  async function download(kind: 'csv' | 'zip', list: Photo[]) {
+    const ids = list.filter((p) => p.serverId && p.status === 'ready').map((p) => p.serverId!)
+    if (!ids.length) {
       toast.error('Сначала добавьте фото')
       return
     }
-    downloadCsv(photos.filter((p) => p.status === 'ready'))
-    toast.success('Отчёт сохранён в CSV')
+    if (!list.some((p) => p.areas.some((a) => a.closed))) {
+      toast.error('Обведите хотя бы одну область: в отчёт попадают измерения')
+      return
+    }
+    try {
+      await sync.flush()
+      if (kind === 'csv') downloadBlob(`отчёт-площадь-${today()}.csv`, await api.exportCsv(ids))
+      else downloadBlob(`отчёт-масштаб-${today()}.zip`, await api.exportZip(ids))
+      toast.success(kind === 'csv' ? 'Отчёт сохранён в CSV' : 'Архив с фото в общем масштабе сохранён')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Не удалось собрать отчёт')
+    }
   }
+
+  const saveReport = () => download('csv', photos)
 
   function pickFiles() {
     if (!selecting) fileInput.current?.click()
@@ -217,7 +280,14 @@ export default function HomePage() {
 
   let view
   if (comparePhotos.length >= 2) {
-    view = <CompareView photos={comparePhotos} strip={strip} onClose={() => setCompareIds(null)} />
+    view = (
+      <CompareView
+        photos={comparePhotos}
+        strip={strip}
+        onClose={() => setCompareIds(null)}
+        onZip={() => download('zip', comparePhotos)}
+      />
+    )
   } else if (active?.status === 'ready') {
     view = (
       <Editor

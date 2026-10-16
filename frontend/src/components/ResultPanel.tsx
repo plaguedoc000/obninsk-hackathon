@@ -2,14 +2,14 @@ import type { ReactNode } from 'react'
 import { X } from 'lucide-react'
 import { BigValue, CtaButton, PanelLabel, StatRow } from '@/components/Workspace'
 import { fmt } from '@/lib/format'
-import { areaMm2, perimeterMm, type MarkerQuality } from '@/lib/geometry'
+import { areaOf, totalsOf, type Scale } from '@/lib/measure'
 import { areaColor } from '@/lib/photos'
 import type { Photo } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
 type Props = {
   photo: Photo | null
-  quality: MarkerQuality | null
+  quality: Scale | null
   cta: { label: string; onClick: () => void; disabled?: boolean }
   hint: string
   selectedId?: string | null
@@ -21,19 +21,20 @@ type Props = {
 // Верх правой панели: результат крупно, показатели, кнопка следующего шага, подсказка, области
 export default function ResultPanel({ photo, quality: q, cta, hint, selectedId, draftId, onSelect, onDelete }: Props) {
   const marker = photo?.marker ?? null
-  const closed = photo?.areas.filter((a) => a.closed) ?? []
-  const total = marker ? closed.reduce((s, a) => s + areaMm2(a.points, marker), 0) : 0
-  const perimeter = marker ? closed.reduce((s, a) => s + perimeterMm(a.points, marker), 0) : 0
+  const totals = photo ? totalsOf(photo) : null
+  const measured = !!(totals?.count && marker)
   const source = photo?.markerSource === 'auto' ? 'найден сам' : photo?.markerSource === 'manual' ? 'вручную' : 'не найден'
+  // предупреждения сервера об эталоне и об областях; пока его ответа нет — быстрые проверки в браузере
+  const warnings = q?.fromServer ? [...q.warnings, ...(totals?.warnings ?? [])] : []
 
   return (
     <>
       <div className="flex flex-col gap-2.5">
         <PanelLabel>РЕЗУЛЬТАТ</PanelLabel>
-        <BigValue value={closed.length && marker ? fmt(total, 1) : '—'} unit="мм²" />
-        <StatRow first label="Периметр" value={closed.length && marker ? `${fmt(perimeter, 1)} мм` : '—'} />
+        <BigValue value={measured ? fmt(totals!.mm2, 1) : '—'} unit="мм²" />
+        <StatRow first label="Периметр" value={measured ? `${fmt(totals!.perimeterMm, 1)} мм` : '—'} />
         <StatRow label="Масштаб" value={q ? `${fmt(q.ppm, 2)} px/мм` : '—'} />
-        <StatRow label="Погрешность" value={q && closed.length ? `±${fmt(q.areaErrorPct, 1)} %` : '—'} />
+        <StatRow label="Погрешность" value={measured ? `±${fmt(totals!.errorPct, 1)} %` : '—'} />
         <StatRow
           label="Эталон"
           value={<span className={cn(!marker && photo && 'text-lab-red')}>{photo ? source : '—'}</span>}
@@ -46,9 +47,15 @@ export default function ResultPanel({ photo, quality: q, cta, hint, selectedId, 
       {photo && !marker && photo.status === 'ready' && (
         <Note tone="red">Без эталона площадь в мм² не посчитать. Выберите «Эталон» и поставьте рамку на квадрат 1×1 см.</Note>
       )}
-      {q?.small && <Note>Эталон мелкий: сторона всего {fmt(q.sidePx, 0)} px, поэтому точность ниже. Лучше снять ближе.</Note>}
-      {q?.skewed && (
-        <Note>Похоже, фото снято под наклоном. Площадь пересчитана с поправкой на перспективу, но точнее снимать сверху.</Note>
+      {q?.fromServer ? (
+        warnings.map((w) => <Note key={w.code}>{w.message}</Note>)
+      ) : (
+        <>
+          {q?.small && <Note>Эталон мелкий: сторона всего {fmt(q.sidePx, 0)} px, поэтому точность ниже. Лучше снять ближе.</Note>}
+          {q?.skewed && (
+            <Note>Похоже, фото снято под наклоном. Площадь пересчитана с поправкой на перспективу, но точнее снимать сверху.</Note>
+          )}
+        </>
       )}
 
       {photo && photo.areas.length > 0 && (
@@ -76,7 +83,7 @@ export default function ResultPanel({ photo, quality: q, cta, hint, selectedId, 
                     )}
                   </span>
                   <span className="text-lab-text/80">
-                    {area.closed && marker ? `${fmt(areaMm2(area.points, marker), 1)} мм²` : '—'}
+                    {area.closed && photo && marker ? `${fmt(areaOf(photo, area)!.mm2, 1)} мм²` : '—'}
                   </span>
                 </button>
                 <button

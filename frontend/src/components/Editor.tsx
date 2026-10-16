@@ -5,7 +5,8 @@ import ImageStage from '@/components/ImageStage'
 import ResultPanel from '@/components/ResultPanel'
 import Workspace, { AreaIcon, HudFrame, MarkerIcon, RailButton, RailDivider } from '@/components/Workspace'
 import { fmt } from '@/lib/format'
-import { defaultMarker, markerQuality } from '@/lib/geometry'
+import { defaultMarker } from '@/lib/geometry'
+import { scaleOf } from '@/lib/measure'
 import { newArea } from '@/lib/photos'
 import type { Area, Photo, Pt, Tool } from '@/lib/types'
 
@@ -29,7 +30,7 @@ export default function Editor({ photo, index, count, canCompare, strip, onChang
 
   const draft = photo.areas.find((a) => a.id === draftId) ?? null
   const closedCount = photo.areas.filter((a) => a.closed).length
-  const quality = photo.marker ? markerQuality(photo.marker) : null
+  const quality = scaleOf(photo)
 
   const setAreas = (fn: (areas: Area[]) => Area[]) => onChange((p) => ({ areas: fn(p.areas) }))
 

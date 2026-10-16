@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { fmt } from '@/lib/format'
-import { areaMm2, centroid, clamp } from '@/lib/geometry'
+import { centroid, clamp } from '@/lib/geometry'
+import { areaOf } from '@/lib/measure'
 import { MARKER_COLOR, areaColor } from '@/lib/photos'
 import type { Photo, Pt, Quad, Tool } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -231,7 +232,7 @@ export default function ImageStage({
                   pointerEvents="none"
                   {...label}
                 >
-                  {fmt(areaMm2(area.points, marker), 1)} мм²
+                  {fmt(areaOf(photo, area)!.mm2, 1)} мм²
                 </text>
               )}
             </g>

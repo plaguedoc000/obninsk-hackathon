@@ -1,7 +1,7 @@
 import { Check, Loader2, X } from 'lucide-react'
 import { PanelLabel } from '@/components/Workspace'
 import { fmt } from '@/lib/format'
-import { areaMm2 } from '@/lib/geometry'
+import { totalsOf } from '@/lib/measure'
 import type { Photo } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -59,8 +59,7 @@ export default function PhotoList({
         {photos.map((photo, index) => {
           const isSelected = selected.has(photo.id)
           const highlighted = selecting ? isSelected : highlightIds.includes(photo.id)
-          const closed = photo.areas.filter((a) => a.closed)
-          const total = photo.marker ? closed.reduce((s, a) => s + areaMm2(a.points, photo.marker!), 0) : 0
+          const total = photo.marker ? totalsOf(photo).mm2 : 0
           const status =
             photo.status === 'loading'
               ? 'поиск эталона…'
