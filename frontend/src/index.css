@@ -1,13 +1,26 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource-variable/geist";
+@import "@fontsource-variable/manrope";
+@import "@fontsource-variable/unbounded";
+@import "@fontsource-variable/jetbrains-mono";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
     --font-heading: var(--font-sans);
-    --font-sans: 'Geist Variable', sans-serif;
+    --font-sans: 'Manrope Variable', sans-serif;
+    --font-display: 'Unbounded Variable', sans-serif;
+    --font-mono: 'JetBrains Mono Variable', ui-monospace, monospace;
+    /* «Лаборатория»: navy, crimson, sky blue */
+    --color-lab-bg: #04050f;
+    --color-lab-blue: #5170ff;
+    --color-lab-sky: #6495ed;
+    --color-lab-red: #e01e3c;
+    --color-lab-navy: #004aad;
+    --color-lab-text: #e8ecfa;
+    --color-lab-paper: #f2eee8;
+    --color-lab-warn: #f5a524;
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -49,30 +62,30 @@
 }
 
 :root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.488 0.217 264);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.623 0.214 259.815);
+    --background: #04050f;
+    --foreground: #e8ecfa;
+    --card: #0b0e20;
+    --card-foreground: #e8ecfa;
+    --popover: #0b0e20;
+    --popover-foreground: #e8ecfa;
+    --primary: #e01e3c;
+    --primary-foreground: #ffffff;
+    --secondary: #12162e;
+    --secondary-foreground: #e8ecfa;
+    --muted: #10142a;
+    --muted-foreground: #9aa3c7;
+    --accent: #12162e;
+    --accent-foreground: #e8ecfa;
+    --destructive: #e01e3c;
+    --border: #1b2547;
+    --input: #24305a;
+    --ring: #5170ff;
     --chart-1: oklch(0.546 0.245 262.881);
     --chart-2: oklch(0.556 0 0);
     --chart-3: oklch(0.439 0 0);
     --chart-4: oklch(0.371 0 0);
     --chart-5: oklch(0.269 0 0);
-    --radius: 0.625rem;
+    --radius: 0px;
     --sidebar: oklch(0.985 0 0);
     --sidebar-foreground: oklch(0.145 0 0);
     --sidebar-primary: oklch(0.205 0 0);
@@ -130,4 +143,17 @@
   html {
     @apply font-sans;
     }
+}
+
+html { color-scheme: dark; }
+
+/* Фон «Лаборатории»: сетка 32 px и сине-красное свечение по краям */
+@utility lab-bg {
+    background-color: var(--color-lab-bg);
+    background-image:
+        linear-gradient(90deg, rgb(0 74 173 / .38), rgb(4 5 15 / 0) 38%, rgb(4 5 15 / 0) 62%, rgb(224 30 60 / .32)),
+        linear-gradient(rgb(100 149 237 / .07) 1px, transparent 1px),
+        linear-gradient(90deg, rgb(100 149 237 / .07) 1px, transparent 1px);
+    background-size: 100% 100%, 32px 32px, 32px 32px;
+    background-attachment: fixed;
 }

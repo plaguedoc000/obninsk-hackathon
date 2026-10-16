@@ -11,7 +11,7 @@ export default function App() {
         <Route index element={<HomePage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
-      <Toaster richColors position="top-center" />
+      <Toaster theme="dark" position="top-center" />
     </BrowserRouter>
   )
 }
