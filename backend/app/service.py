@@ -14,6 +14,7 @@ from . import config
 from .detection import detect_marker, to_gray
 from .errors import AppError, bad_input, not_found
 from .geometry import apply_transform, build_calibration, measure_polygon, shape_to_polygon
+from .grid import find_grid
 from .imaging import encode
 from .plane import find_sheet
 from .standardize import annotate, draw_caption, draw_outlines, fmt_num, plan_output, warp
@@ -124,8 +125,11 @@ def run_detection(store: Store, image_id: str, polarity: str = "dark", marker_si
 
 def _calibrate(meta: dict, corners, size_mm: float, perspective: str, method: str, sigma: float | None,
                candidate_index: int | None = None, gray=None) -> dict:
-    # лист бумаги под эталоном целиком в кадре — перспектива по его краям (см. plane.py)
+    # лист бумаги под эталоном целиком в кадре — перспектива по его краям (см. plane.py);
+    # листа нет, но есть сетка (коврик для резки, миллиметровка) — по линиям сетки (grid.py)
     plane = find_sheet(gray, corners, size_mm) if gray is not None and perspective != "off" else None
+    if gray is not None and perspective != "off" and (plane is None or plane["source"] != "sheet"):
+        plane = find_grid(gray, corners, size_mm) or plane
     cal = build_calibration(corners, marker_size_mm=size_mm, perspective=perspective, method=method,
                             sigma_px=sigma, image_size=(meta["width"], meta["height"]), plane=plane,
                             focal35_mm=meta.get("focal35_mm"))

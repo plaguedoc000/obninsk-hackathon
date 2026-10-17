@@ -223,11 +223,11 @@ def build_calibration(
     sigma_px = max(float(sigma_px), config.MIN_AUTO_CORNER_SIGMA_PX)
 
     # Перспектива, по убыванию надёжности:
-    # 1) лист бумаги в кадре (его края, plane.py);
+    # 1) лист бумаги в кадре (его края, plane.py) или сетка на столе (grid.py);
     # 2) поза эталона при известном фокусном расстоянии (pose.py) — фокусное из EXIF или как у телефона;
     #    видимые стороны листа (лист не целиком в кадре) её уточняют;
     # 3) только по трапеции эталона — если она заметно сильнее шума измерения углов
-    by_sheet = bool(plane) and plane.get("source") == "sheet" and perspective != "off"
+    by_sheet = bool(plane) and plane.get("source") in ("sheet", "grid") and perspective != "off"
     edges = plane.get("lines") if plane and plane.get("source") == "edges" else None
     pose = None
     focal_px = None

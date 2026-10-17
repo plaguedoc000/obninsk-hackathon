@@ -49,9 +49,8 @@ EXPECT: dict[str, dict] = {
     "09_low_light": dict(corner=0.025, area=3.0, wand=0.95, warn=["MULTIPLE_CANDIDATES"]),
     "10_dof": dict(corner=0.02, area=3.0, wand=0.95),
     "11_motion_blur": dict(corner=0.02, area=3.0, wand=0.9),
-    "12_cutting_mat": dict(corner=0.025, area=3.0, wand=0.95, issues={
-        "area": {0: "Белые линии сетки коврика у краёв эталона сбивают уточнение углов (до 1,4 пикс.); при наклоне 10° "
-                    "образец вдали выходит на +4%. Погрешность сайт показывает честно (±5%)."}}),
+    # листа нет, перспектива — по линиям сетки коврика; линии у краёв эталона не сбивают уточнение углов
+    "12_cutting_mat": dict(corner=0.015, area=2.0, wand=0.95),
     # жирная линия миллиметровки (0,25 мм) проходит ровно по краю эталона: её половина снаружи сливается с краем
     "13_graph_paper": dict(corner=0.015, area=3.0, wand=0.95),
     "14_dark_distractors": dict(corner=0.01, area=3.0, wand=0.95),
@@ -225,6 +224,19 @@ def test_two_squares_ambiguity_is_reported():
     v = uploaded("15_two_squares")
     picked_right = v["calibration"] and corner_error(v, "15_two_squares") < 0.05
     assert picked_right or "MULTIPLE_CANDIDATES" in warning_codes(v)
+
+
+@pytest.mark.parametrize("name", ["12_cutting_mat", "13_graph_paper"])
+def test_grid_gives_perspective(name):
+    """Листа нет, но эталон лежит на сетке: перспектива — по точкам схода её линий."""
+    plane = calibrated(name)["calibration"]["plane"]
+    assert plane["source"] == "grid" and min(plane["lines"]) >= 5
+
+
+def test_visible_sheet_sides_refine_pose():
+    """Лист виден не целиком (две стороны): они уточняют позу эталона."""
+    plane = calibrated("19_occluded")["calibration"]["plane"]
+    assert plane["source"] == "pose" and plane["sheet_edges"] == 2
 
 
 def test_exif_focal_length_is_used():
