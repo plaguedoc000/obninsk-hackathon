@@ -5,12 +5,13 @@
 """
 from __future__ import annotations
 
+import logging
+import mimetypes
 import time
 from typing import Literal, Optional
 
-from fastapi import FastAPI, File, Form, Query, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
@@ -19,9 +20,12 @@ from .contour import autocontour
 from .errors import AppError
 from .imaging import HEIC_SUPPORTED, encode, resize_max
 from .routers import auth
-from .storage import Store
+from .storage import Store, clean_filename
+from .workspace import OwnedStore, workspace_cookie
 
-store = Store(config.DATA_DIR)
+log = logging.getLogger("app")
+# Всё хранилище. Эндпоинты работают только через ws(): фото своего браузера, чужие — 404
+raw_store = Store(config.DATA_DIR)
 
 # Документация под /api/: на сервере наружу открыт только этот путь
 app = FastAPI(
@@ -36,9 +40,42 @@ app = FastAPI(
         "а не в пикселях экрана. Учебный прототип, не медицинское изделие."
     ),
 )
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
-                   expose_headers=["Content-Disposition", "X-Preview-Scale"])
 app.include_router(auth.router)
+
+
+class BodyLimit:
+    """Запрос больше MAX_REQUEST_MB отклоняется, не дочитываясь: иначе один запрос забьёт память или диск."""
+
+    def __init__(self, app, max_bytes: int):
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        length = dict(scope["headers"]).get(b"content-length")
+        if length is not None and (not length.isdigit() or int(length) > self.max_bytes):
+            err = AppError("REQUEST_TOO_LARGE", f"Запрос больше {self.max_bytes // 2**20} МБ", 413)
+            return await JSONResponse(status_code=413, content={"detail": err.to_dict()})(scope, receive, send)
+        received = 0
+
+        async def limited():
+            nonlocal received
+            message = await receive()
+            received += len(message.get("body", b""))
+            if received > self.max_bytes:
+                raise AppError("REQUEST_TOO_LARGE", f"Запрос больше {self.max_bytes // 2**20} МБ", 413)
+            return message
+
+        await self.app(scope, limited, send)
+
+
+app.add_middleware(BodyLimit, max_bytes=int(config.MAX_REQUEST_MB * 2**20))
+app.middleware("http")(workspace_cookie)
+
+
+def ws(request: Request) -> OwnedStore:
+    return OwnedStore(raw_store, request.state.owner, config.MAX_IMAGES_PER_WORKSPACE)
 
 
 # ---------------------------------------------------------------- ошибки
@@ -60,8 +97,11 @@ async def _validation_error(_: Request, exc: RequestValidationError):
 
 
 @app.exception_handler(Exception)
-async def _unexpected(_: Request, exc: Exception):  # pragma: no cover
-    return JSONResponse(status_code=500, content={"detail": {"code": "INTERNAL_ERROR", "message": f"Внутренняя ошибка: {exc}"}})
+async def _unexpected(request: Request, exc: Exception):  # pragma: no cover
+    # подробности — только в журнал сервера: текст исключения может выдать пути и внутренности
+    log.exception("Ошибка в %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500, content={"detail": {"code": "INTERNAL_ERROR",
+                                                             "message": "Внутренняя ошибка сервера. Попробуйте ещё раз"}})
 
 
 # ---------------------------------------------------------------- модели запросов
@@ -122,6 +162,10 @@ class AutocontourRequest(BaseModel):
     union: Optional[list[list[Point]]] = Field(None, max_length=50, description="Уже выделенные области: новая заливка объединится с ними")
 
 
+class ClaimRequest(BaseModel):
+    group: str = Field(..., min_length=1, max_length=100, description="Группа, в которую браузер загружал фото раньше")
+
+
 def _ids(s: Optional[str]) -> Optional[list[str]]:
     if not s:
         return None
@@ -132,7 +176,7 @@ def _ids(s: Optional[str]) -> Optional[list[str]]:
 
 @app.get("/api/health", tags=["Служебное"])
 def health():
-    return {"status": "ok", "version": service.VERSION, "images": len(store.list()), "heic_supported": HEIC_SUPPORTED,
+    return {"status": "ok", "version": service.VERSION, "heic_supported": HEIC_SUPPORTED,
             "default_marker_mm": config.DEFAULT_MARKER_MM}
 
 
@@ -144,6 +188,7 @@ async def upload_images(
     detect: bool = Form(True, description="Сразу искать эталон и калибровать"),
     marker_size_mm: Optional[float] = Form(None, gt=0),
     group: Optional[str] = Form(None),
+    store: OwnedStore = Depends(ws),
 ):
     results, errors = [], []
     for f in files:
@@ -165,12 +210,12 @@ async def upload_images(
 
 
 @app.get("/api/images", tags=["Фото"], summary="Список фото")
-def list_images(group: Optional[str] = None, with_measurements: bool = True):
+def list_images(group: Optional[str] = None, with_measurements: bool = True, store: OwnedStore = Depends(ws)):
     return {"images": [service.image_view(m, with_measurements) for m in store.list(group)]}
 
 
 @app.get("/api/groups", tags=["Фото"], summary="Список групп (серий)")
-def list_groups():
+def list_groups(store: OwnedStore = Depends(ws)):
     groups: dict[str, int] = {}
     for m in store.list():
         if m.get("group"):
@@ -178,44 +223,51 @@ def list_groups():
     return {"groups": [{"name": k, "count": v} for k, v in sorted(groups.items())]}
 
 
+@app.post("/api/workspace/claim", tags=["Фото"], summary="Забрать свои фото, загруженные до появления ключей")
+def claim_workspace(body: ClaimRequest, store: OwnedStore = Depends(ws)):
+    return {"claimed": store.claim(body.group)}
+
+
 @app.get("/api/images/{image_id}", tags=["Фото"])
-def get_image(image_id: str):
+def get_image(image_id: str, store: OwnedStore = Depends(ws)):
     return service.image_view(store.get(image_id))
 
 
 @app.patch("/api/images/{image_id}", tags=["Фото"], summary="Изменить группу, заметку или имя")
-def patch_image(image_id: str, body: ImagePatch):
+def patch_image(image_id: str, body: ImagePatch, store: OwnedStore = Depends(ws)):
     fields = {}
     if body.group is not None:
         fields["group"] = body.group.strip() or None
     if body.note is not None:
         fields["note"] = body.note
     if body.filename:
-        fields["filename"] = body.filename
+        fields["filename"] = clean_filename(body.filename)
     meta = store.update(image_id, **fields)
     return service.image_view(meta)
 
 
 @app.delete("/api/images/{image_id}", tags=["Фото"])
-def delete_image(image_id: str):
+def delete_image(image_id: str, store: OwnedStore = Depends(ws)):
     store.delete(image_id)
     return {"deleted": image_id}
 
 
 @app.get("/api/images/{image_id}/file", tags=["Фото"], summary="Фото (повёрнутое по EXIF) — в его пикселях все координаты")
-def image_file(image_id: str):
+def image_file(image_id: str, store: OwnedStore = Depends(ws)):
     p = store.work_path(image_id)
     return FileResponse(p, media_type="image/png" if p.suffix == ".png" else "image/jpeg")
 
 
 @app.get("/api/images/{image_id}/original", tags=["Фото"], summary="Исходный файл без изменений")
-def image_original(image_id: str):
+def image_original(image_id: str, store: OwnedStore = Depends(ws)):
     meta = store.get(image_id)
-    return FileResponse(store.original_path(image_id), filename=meta["filename"])
+    path = store.original_path(image_id)
+    # тип — по сохранённому файлу, а не по имени, которое можно поменять на «x.html»
+    return FileResponse(path, filename=meta["filename"], media_type=mimetypes.guess_type(path.name)[0] or "application/octet-stream")
 
 
 @app.get("/api/images/{image_id}/preview", tags=["Фото"], summary="Уменьшенная копия для галереи")
-def image_preview(image_id: str, max_side: int = Query(800, ge=64, le=4000)):
+def image_preview(image_id: str, max_side: int = Query(800, ge=64, le=4000), store: OwnedStore = Depends(ws)):
     store.get(image_id)
     small, s = resize_max(store.load_bgr(image_id), max_side)
     return Response(encode(small, "jpg", 85), media_type="image/jpeg", headers={"X-Preview-Scale": f"{s:.6f}"})
@@ -224,55 +276,55 @@ def image_preview(image_id: str, max_side: int = Query(800, ge=64, le=4000)):
 # ---------------------------------------------------------------- эталон
 
 @app.post("/api/images/{image_id}/detect", tags=["Эталон"], summary="Найти эталон автоматически")
-def detect(image_id: str, body: DetectRequest = DetectRequest()):
+def detect(image_id: str, body: DetectRequest = DetectRequest(), store: OwnedStore = Depends(ws)):
     meta = service.run_detection(store, image_id, body.polarity, body.marker_size_mm, body.auto_calibrate, body.perspective)
     return service.image_view(meta)
 
 
 @app.put("/api/images/{image_id}/calibration", tags=["Эталон"],
          summary="Задать эталон: 4 угла квадрата, отрезок известной длины, выбрать кандидата или поменять сторону эталона")
-def put_calibration(image_id: str, body: CalibrationRequest):
+def put_calibration(image_id: str, body: CalibrationRequest, store: OwnedStore = Depends(ws)):
     meta = service.set_calibration(store, image_id, body.corners, body.candidate_index, body.marker_size_mm, body.perspective,
                                    body.segment, body.segment_mm)
     return service.image_view(meta)
 
 
 @app.get("/api/images/{image_id}/calibration", tags=["Эталон"])
-def get_calibration(image_id: str):
+def get_calibration(image_id: str, store: OwnedStore = Depends(ws)):
     return {"calibration": store.get(image_id).get("calibration")}
 
 
 @app.delete("/api/images/{image_id}/calibration", tags=["Эталон"])
-def delete_calibration(image_id: str):
+def delete_calibration(image_id: str, store: OwnedStore = Depends(ws)):
     return service.image_view(service.reset_calibration(store, image_id))
 
 
 # ---------------------------------------------------------------- измерения
 
 @app.post("/api/images/{image_id}/measurements", tags=["Измерения"], summary="Измерить площадь обводки (и сохранить)")
-def add_measurement(image_id: str, body: MeasurementRequest):
+def add_measurement(image_id: str, body: MeasurementRequest, store: OwnedStore = Depends(ws)):
     return service.add_measurement(store, image_id, body.shape, body.points, body.ellipse, body.label, body.save)
 
 
 @app.get("/api/images/{image_id}/measurements", tags=["Измерения"])
-def list_measurements(image_id: str):
+def list_measurements(image_id: str, store: OwnedStore = Depends(ws)):
     return {"measurements": service.image_view(store.get(image_id))["measurements"]}
 
 
 @app.patch("/api/images/{image_id}/measurements/{mid}", tags=["Измерения"], summary="Поправить точки или подпись")
-def patch_measurement(image_id: str, mid: str, body: MeasurementPatch):
+def patch_measurement(image_id: str, mid: str, body: MeasurementPatch, store: OwnedStore = Depends(ws)):
     return service.update_measurement(store, image_id, mid, shape=body.shape, points=body.points,
                                       ellipse=body.ellipse, label=body.label)
 
 
 @app.delete("/api/images/{image_id}/measurements/{mid}", tags=["Измерения"])
-def delete_measurement(image_id: str, mid: str):
+def delete_measurement(image_id: str, mid: str, store: OwnedStore = Depends(ws)):
     service.delete_measurement(store, image_id, mid)
     return {"deleted": mid}
 
 
 @app.post("/api/images/{image_id}/autocontour", tags=["Измерения"], summary="Волшебная палочка (бета): обвести объект по клику")
-def auto_contour(image_id: str, body: AutocontourRequest):
+def auto_contour(image_id: str, body: AutocontourRequest, store: OwnedStore = Depends(ws)):
     meta = store.get(image_id)
     res = autocontour(store.load_bgr(image_id), body.point, body.tolerance, union=body.union)
     if meta.get("calibration"):
@@ -291,6 +343,7 @@ def standardized(
     grid: bool = False,
     annotate: bool = False,
     format: Literal["jpg", "png"] = "jpg",
+    store: OwnedStore = Depends(ws),
 ):
     data, info = service.standardized_image(store, image_id, px_per_mm, mode, grid, annotate, format)
     return Response(data, media_type="image/png" if format == "png" else "image/jpeg",
@@ -298,7 +351,7 @@ def standardized(
 
 
 @app.post("/api/compare", tags=["Общий масштаб"], summary="Привести выбранные фото к одному масштабу")
-def compare(body: CompareRequest):
+def compare(body: CompareRequest, store: OwnedStore = Depends(ws)):
     return service.compare(store, body.image_ids, body.group, body.px_per_mm, body.mode, body.grid, body.annotate)
 
 
@@ -309,7 +362,7 @@ def export_csv(image_ids: Optional[str] = Query(None, description="id через
                group: Optional[str] = None,
                sep: Literal[";", ",", "tab"] = ";",
                decimal: Literal[",", "."] = ",",
-               tz: Optional[int] = Query(None, ge=-840, le=840, description="Часовой пояс для даты: минуты от UTC (Москва — 180)")):
+               tz: Optional[int] = Query(None, ge=-840, le=840, description="Часовой пояс для даты: минуты от UTC (Москва — 180)"), store: OwnedStore = Depends(ws)):
     rows = service.export_rows(store, _ids(image_ids), group)
     data = service.to_csv(rows, "\t" if sep == "tab" else sep, decimal, tz)
     return Response(data, media_type="text/csv; charset=utf-8",
@@ -319,7 +372,7 @@ def export_csv(image_ids: Optional[str] = Query(None, description="id через
 @app.get("/api/export/files", tags=["Экспорт"], summary="Фото в общем масштабе с контурами и подписью (JPG или ZIP)")
 def export_files(image_ids: Optional[str] = Query(None, description="id через запятую; пусто — все"),
                  group: Optional[str] = None,
-                 tz: Optional[int] = Query(None, ge=-840, le=840, description="Часовой пояс для даты: минуты от UTC (Москва — 180)")):
+                 tz: Optional[int] = Query(None, ge=-840, le=840, description="Часовой пояс для даты: минуты от UTC (Москва — 180)"), store: OwnedStore = Depends(ws)):
     data, media = service.export_files(store, _ids(image_ids), group, tz)
     name = "photo.jpg" if media == "image/jpeg" else "photos.zip"
     return Response(data, media_type=media, headers={"Content-Disposition": f'attachment; filename="{name}"'})
@@ -327,7 +380,7 @@ def export_files(image_ids: Optional[str] = Query(None, description="id чере
 
 @app.get("/api/export.zip", tags=["Экспорт"], summary="Архив: CSV + отчёт JSON + фото в общем масштабе")
 def export_zip(image_ids: Optional[str] = Query(None), group: Optional[str] = None,
-               px_per_mm: Optional[float] = Query(None, gt=0), mode: Literal["scale", "rectify"] = "scale"):
+               px_per_mm: Optional[float] = Query(None, gt=0), mode: Literal["scale", "rectify"] = "scale", store: OwnedStore = Depends(ws)):
     data = service.export_zip(store, _ids(image_ids), group, px_per_mm, mode)
     return Response(data, media_type="application/zip",
                     headers={"Content-Disposition": 'attachment; filename="onescale_report.zip"'})

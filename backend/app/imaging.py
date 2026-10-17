@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import struct
 
 import cv2
 import numpy as np
@@ -40,6 +41,9 @@ def decode_upload(data: bytes) -> tuple[np.ndarray, dict]:
     """bytes -> (BGR uint8 с учётом EXIF-поворота, сведения)."""
     try:
         im = Image.open(io.BytesIO(data))
+        # размер известен до распаковки: маленький PNG может развернуться в сотни мегабайт
+        if im.width * im.height > config.MAX_IMAGE_PIXELS:
+            raise Image.DecompressionBombError
         fmt = (im.format or "").upper()
         exif_orientation = None
         focal35 = None
@@ -66,6 +70,61 @@ def decode_upload(data: bytes) -> tuple[np.ndarray, dict]:
         "rotated_by_exif": bool(exif_orientation and exif_orientation != 1),
     }
     return bgr, info
+
+
+# байт на одно значение для типов полей TIFF/EXIF
+_TYPE_SIZE = {1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 6: 1, 7: 1, 8: 2, 9: 4, 10: 8, 11: 4, 12: 8}
+_XMP = b"http://ns.adobe.com/xap/1.0/\x00"
+
+
+def _wipe_gps(tiff: bytearray) -> bool:
+    """Затирает нулями GPS-блок EXIF (TIFF-структура) на месте. True — координаты были."""
+    try:
+        e = {b"II": "<", b"MM": ">"}[bytes(tiff[:2])]
+        u16 = lambda o: struct.unpack_from(e + "H", tiff, o)[0]  # noqa: E731
+        u32 = lambda o: struct.unpack_from(e + "I", tiff, o)[0]  # noqa: E731
+        ifd = u32(4)
+        for i in range(u16(ifd)):
+            entry = ifd + 2 + 12 * i
+            if u16(entry) != 0x8825:
+                continue
+            gps = u32(entry + 8)
+            n = u16(gps)
+            for j in range(n):
+                g = gps + 2 + 12 * j
+                size = _TYPE_SIZE.get(u16(g + 2), 1) * u32(g + 4)
+                if size > 4 and u32(g + 8) + size <= len(tiff):
+                    tiff[u32(g + 8):u32(g + 8) + size] = bytes(size)
+                tiff[g:g + 12] = bytes(12)
+            struct.pack_into(e + "H", tiff, gps, 0)
+            return n > 0
+    except (KeyError, struct.error, IndexError):
+        pass
+    return False
+
+
+def strip_gps(data: bytes) -> bytes:
+    """Координаты съёмки из JPEG и TIFF — до сохранения на сервере. Без перекодирования: длина и картинка
+    те же, поворот и фокусное остаются. Медицинские фото не должны выдавать, где снимали."""
+    out = bytearray(data)
+    if out[:2] == b"\xff\xd8":
+        pos = 2
+        try:
+            while pos + 4 <= len(out) and out[pos] == 0xFF and out[pos + 1] not in (0xD9, 0xDA):
+                end = pos + 2 + struct.unpack_from(">H", out, pos + 2)[0]
+                body = pos + 4
+                if out[pos + 1] == 0xE1 and out[body:body + 6] == b"Exif\x00\x00":
+                    tiff = bytearray(out[body + 6:end])
+                    if _wipe_gps(tiff):
+                        out[body + 6:end] = tiff
+                elif out[pos + 1] == 0xE1 and out[body:body + len(_XMP)] == _XMP and b"GPS" in out[body:end]:
+                    out[body + len(_XMP):end] = b" " * (end - body - len(_XMP))
+                pos = end
+        except struct.error:
+            pass
+    elif out[:4] in (b"II*\x00", b"MM\x00*"):
+        _wipe_gps(out)
+    return bytes(out)
 
 
 def encode(bgr: np.ndarray, fmt: str = "jpg", quality: int = 92) -> bytes:
