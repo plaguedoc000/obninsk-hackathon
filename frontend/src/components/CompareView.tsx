@@ -214,7 +214,7 @@ export default function CompareView({ photos }: Props) {
               <div className="flex items-center gap-3 font-mono text-xs font-medium text-lab-text/75">
                 {norm && k > 0 && <div className={cn('h-2 shrink-0 border-2 border-t-0 border-lab-sky transition-[width]', EASE)} style={{ width: cm }} />}
                 {norm
-                  ? `1 см = ${Math.round(cm)} px · все снимки приведены к одному масштабу по эталону`
+                  ? `1 см = ${Math.round(cm)} px`
                   : 'Снимки как сняты — эталон на каждом разного размера'}
               </div>
             )}

@@ -64,7 +64,8 @@ export function RailButton({ label, hotkey, tone, icon, onClick, active, disable
       aria-pressed={active}
       className={cn(
         'relative flex w-[60px] shrink-0 items-center justify-center border text-lab-text outline-none focus-visible:ring-2 focus-visible:ring-lab-blue disabled:cursor-default disabled:opacity-30',
-        half ? 'h-[30px] gap-[5px]' : 'h-[60px] flex-col gap-[7px]',
+        // в низкой кнопке значок и подпись в одну строку — сжимаем промежуток, чтобы «КВАДРАТ» не упирался в край
+        half ? 'h-[30px] gap-[3px]' : 'h-[60px] flex-col gap-[7px]',
       )}
       style={{
         borderColor: active ? t.color : 'rgba(100,149,237,.25)',
@@ -73,7 +74,7 @@ export function RailButton({ label, hotkey, tone, icon, onClick, active, disable
       }}
     >
       <span
-        className={cn('border-2', half ? 'size-3' : 'size-[18px]')}
+        className={cn('border-2', half ? 'size-2.5' : 'size-[18px]')}
         style={{
           borderStyle: icon.style,
           borderColor: t.color,
@@ -82,7 +83,7 @@ export function RailButton({ label, hotkey, tone, icon, onClick, active, disable
           background: icon.fill ?? 'transparent',
         }}
       />
-      <span className="font-mono text-[9px] font-medium tracking-[.04em]">{label}</span>
+      <span className={cn('font-mono text-[9px] font-medium', half ? 'text-[8.5px] tracking-normal' : 'tracking-[.04em]')}>{label}</span>
       <span className={cn('absolute right-1 font-mono font-medium text-lab-text/45', half ? 'top-px text-[7px]' : 'top-[3px] text-[9px]')}>
         {hotkey}
       </span>
