@@ -26,6 +26,8 @@ export type Photo = {
   // Квадрат эталона. Если эталон — отрезок, здесь «виртуальный» квадрат 1×1 см в его масштабе (segmentQuad):
   // по нему считаются площади, а на фото рисуется сам отрезок
   marker: Quad | null
+  // Сторона квадрата-эталона в мм (обычно 10). У эталона-отрезка — сторона «виртуального» квадрата, MARKER_MM
+  markerMm: number
   segment: Segment | null
   markerSource: 'auto' | 'manual' | null
   server: ServerScale | null
