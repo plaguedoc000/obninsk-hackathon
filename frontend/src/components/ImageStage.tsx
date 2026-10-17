@@ -37,6 +37,7 @@ type Props = {
   onDragStart: () => void
   onMarkerChange: (q: Quad) => void
   onMarkerPoint: (p: Pt) => void
+  onMarkerSize: (mm: number) => void
   onSegmentChange: (seg: Segment) => void
   onSegmentLength: (mm: number) => void
   onRulerToSegment: (mm: number) => void
@@ -96,6 +97,7 @@ export default function ImageStage({
   onDragStart,
   onMarkerChange,
   onMarkerPoint,
+  onMarkerSize,
   onSegmentChange,
   onSegmentLength,
   onRulerToSegment,
@@ -560,8 +562,15 @@ export default function ImageStage({
   let rulerText = ''
   if (ruler) {
     const px = Math.hypot(ruler.b.x - ruler.a.x, ruler.b.y - ruler.a.y)
-    rulerText = marker ? `${fmt(perimeterMm([ruler.a, ruler.b], marker) / 2 / 10, 2)} см` : `${Math.round(px)} px`
+    rulerText = marker ? `${fmt(perimeterMm([ruler.a, ruler.b], marker, photo.markerMm) / 2 / 10, 2)} см` : `${Math.round(px)} px`
   }
+
+  // подпись квадрата-эталона — под нижним углом рамки, ниже ручек
+  const square =
+    marker && !segment
+      ? { x: (Math.min(...marker.map((p) => p.x)) + Math.max(...marker.map((p) => p.x))) / 2, y: Math.max(...marker.map((p) => p.y)) }
+      : null
+  const sideText = fmt(photo.markerMm, photo.markerMm % 1 ? 1 : 0)
 
   return (
     <StageFrame ref={frameRef}>
@@ -647,6 +656,32 @@ export default function ImageStage({
         )
       )}
 
+      {/* подпись квадрата-эталона; в «Квадрате» сторону можно поменять — эталоном станет квадрат любого размера */}
+      {ready && square && !dragging && !markerDraft.length && (
+        tool === 'marker' ? (
+          <MmForm
+            key={photo.markerMm}
+            left={left + square.x * s}
+            top={top + square.y * s + hit - 6}
+            value={photo.markerMm}
+            button="OK"
+            label="Сторона квадрата-эталона, мм"
+            placeholder="сторона"
+            min={0.5}
+            max={1000}
+            title="Сторона квадрата-эталона в мм: 10 — квадрат 1×1 см, 20 — 2×2 см и т. д."
+            onSubmit={onMarkerSize}
+          />
+        ) : (
+          <div
+            className="pointer-events-none absolute -translate-x-1/2 translate-y-2.5 border border-lab-blue bg-lab-bg/90 px-1.5 py-0.5 font-mono text-[11px] font-semibold whitespace-nowrap text-white"
+            style={{ left: left + square.x * s, top: top + square.y * s + hit - 6 }}
+          >
+            ЭТАЛОН {sideText}×{sideText} мм
+          </div>
+        )
+      )}
+
       {showLens && mouse && <Lens photo={photo} point={mouse} s={s} left={left} top={top} size={size} shapes={shapes} finger={mobile && touch} />}
 
       {ready && zoom > 1 && <Minimap photo={photo} view={{ x0: cx - hx, x1: cx + hx, y0: cy - hy, y1: cy + hy }} onCenter={setCenter} />}
@@ -687,18 +722,22 @@ function SegmentShape({ seg, u, glow, handles, hit, onGrab }: {
   )
 }
 
-// Поле «__ мм» с кнопкой под серединой линии: длина эталона-отрезка
-function MmForm({ left, top, value, button, title, onSubmit }: {
+// Поле «__ мм» с кнопкой под эталоном: длина отрезка или сторона квадрата
+function MmForm({ left, top, value, button, title, label = 'Длина отрезка, мм', placeholder = 'длина', min = 0.1, max = 10000, onSubmit }: {
   left: number
   top: number
   value?: number
   button: string
   title: string
+  label?: string
+  placeholder?: string
+  min?: number
+  max?: number
   onSubmit: (mm: number) => void
 }) {
   const [text, setText] = useState(value ? String(value).replace('.', ',') : '')
   const mm = Number(text.replace(',', '.').trim())
-  const ok = text.trim() !== '' && Number.isFinite(mm) && mm >= 0.1 && mm <= 10000
+  const ok = text.trim() !== '' && Number.isFinite(mm) && mm >= min && mm <= max
 
   function submit(e: FormEvent) {
     e.preventDefault()
@@ -717,8 +756,8 @@ function MmForm({ left, top, value, button, title, onSubmit }: {
         value={text}
         onChange={(e) => setText(e.target.value)}
         inputMode="decimal"
-        placeholder="длина"
-        aria-label="Длина отрезка, мм"
+        placeholder={placeholder}
+        aria-label={label}
         autoFocus={!value}
         className="h-7 w-16 border border-lab-sky/40 bg-transparent px-1.5 text-white outline-none placeholder:text-lab-text/40 focus:border-lab-blue"
       />
