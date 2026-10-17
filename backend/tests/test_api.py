@@ -44,7 +44,7 @@ def test_full_flow_two_scales_same_object():
     a_img, _, a_obj = scene(6.0)
     b_img, _, b_obj = scene(12.0, size=(2000, 1500))
     a = upload("near.jpg", jpeg_bytes(a_img), group="flow")
-    b = upload("far.png", cv2.imencode(".png", b_img)[1].tobytes(), group="flow")
+    b = upload("far.jpg", jpeg_bytes(b_img), group="flow")
     assert a["status"] == "calibrated" and b["status"] == "calibrated"
     assert a["calibration"]["px_per_mm"] == pytest.approx(6.0, rel=0.01)
     assert b["calibration"]["px_per_mm"] == pytest.approx(12.0, rel=0.01)
@@ -77,6 +77,17 @@ def test_full_flow_two_scales_same_object():
     names = z.namelist()
     assert "measurements.csv" in names and "report.json" in names
     assert sum(n.startswith("standardized/") for n in names) == 2
+
+
+def test_upload_limit_1mb():
+    # сайт сжимает фото до 1 МБ сам, сервер крупнее не принимает
+    img, _, _ = scene(12.0, size=(2000, 1500))
+    big = cv2.imencode(".png", img)[1].tobytes()
+    assert len(big) > 1024 * 1024
+    r = client.post("/api/images", files=[("files", ("big.png", big, "image/png"))])
+    assert r.status_code == 413 and r.json()["detail"]["errors"][0]["code"] == "FILE_TOO_LARGE"
+    small = upload("small.png", cv2.imencode(".png", img[:500, :700])[1].tobytes())
+    assert small["format"] == "PNG" and small["width"] == 700
 
 
 def test_exif_rotation_and_coordinates():

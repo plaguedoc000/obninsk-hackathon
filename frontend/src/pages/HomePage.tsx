@@ -10,6 +10,7 @@ import { Shell } from '@/components/Workspace'
 import { api } from '@/lib/api'
 import { today } from '@/lib/format'
 import { scaleOf } from '@/lib/measure'
+import { compressForUpload } from '@/lib/compress'
 import { createPhoto, isImageFile, photoFromServer, scaleFromServer, workspaceId } from '@/lib/photos'
 import { downloadBlob } from '@/lib/report'
 import type { Photo } from '@/lib/types'
@@ -74,7 +75,7 @@ export default function HomePage() {
       // по одному: сервер на каждом фото ищет эталон
       for (const [i, photo] of created.entries()) {
         try {
-          const { images: [image] } = await api.uploadImage(images[i], workspaceId())
+          const { images: [image] } = await api.uploadImage(await compressForUpload(images[i]), workspaceId())
           URL.revokeObjectURL(photo.url)
           // фото удалили, пока оно загружалось
           if (!photosRef.current.some((p) => p.id === photo.id)) {

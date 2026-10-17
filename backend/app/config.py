@@ -56,7 +56,7 @@ DETECT_MAX_SIDE = _env_int("ONESCALE_DETECT_MAX_SIDE", 1600)
 DETECT_MAX_CANDIDATES = _env_int("ONESCALE_DETECT_MAX_CANDIDATES", 5)
 
 # Ограничения на загрузку
-MAX_UPLOAD_MB = _env_float("ONESCALE_MAX_UPLOAD_MB", 60.0)
+MAX_UPLOAD_MB = _env_float("ONESCALE_MAX_UPLOAD_MB", 1.0)  # сайт сам сжимает фото до 1 МБ (frontend/src/lib/compress.ts)
 MAX_IMAGE_PIXELS = _env_int("ONESCALE_MAX_IMAGE_PIXELS", 120_000_000)
 
 # Сколько фото держать в памяти для быстрой работы (на маленьком сервере — меньше)
