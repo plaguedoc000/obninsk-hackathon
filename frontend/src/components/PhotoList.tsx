@@ -39,7 +39,7 @@ export default function PhotoList({ photos, activeId, picking, picked, normIds, 
       {/* Шапка списка закреплена и не уезжает при прокрутке: количество, «Добавить фото» и папка.
           Сразу открывается системное окно: файлы — кнопкой, папка целиком — значком справа */}
       <div className="sticky -top-5 z-10 -mx-[26px] -mt-5 flex shrink-0 items-center gap-1.5 border-b border-lab-sky/30 bg-lab-bg/90 px-[26px] pt-5 pb-3 backdrop-blur">
-        <div className="mr-auto pr-2 font-mono text-[11px] font-medium tracking-[.14em] whitespace-nowrap text-lab-text/55">
+        <div className="mr-auto pr-2 font-mono text-[15px] font-medium tracking-[.06em] whitespace-nowrap text-lab-text/70">
           Количество {photos.length}
         </div>
         <button

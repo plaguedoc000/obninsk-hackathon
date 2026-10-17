@@ -37,8 +37,9 @@ const TONES = {
 }
 
 // Значок инструмента — квадратик 18×18 с рамкой: пунктир, круг, клякса и т. п.
-// borderWidth — например '0 2px': только боковые засечки, как у значка отрезка |—|
-type Icon = { style: 'dashed' | 'solid'; radius: string; fill?: string; borderWidth?: string }
+// borderWidth — например '0 2px': только боковые засечки, как у значка отрезка |—|.
+// Фигуру сложнее рамки (стрелку, линейку) рисуем svg — он красится цветом кнопки
+type Icon = { style: 'dashed' | 'solid'; radius: string; fill?: string; borderWidth?: string } | { svg: ReactNode }
 
 type RailButtonProps = {
   label: string
@@ -73,16 +74,22 @@ export function RailButton({ label, hotkey, tone, icon, onClick, active, disable
         boxShadow: active ? t.glow : 'none',
       }}
     >
-      <span
-        className={cn('border-2', half ? 'size-2.5' : 'size-[18px]')}
-        style={{
-          borderStyle: icon.style,
-          borderColor: t.color,
-          borderRadius: icon.radius,
-          borderWidth: icon.borderWidth,
-          background: icon.fill ?? 'transparent',
-        }}
-      />
+      {'svg' in icon ? (
+        <span className={cn('flex shrink-0', half ? 'size-2.5' : 'size-[18px]')} style={{ color: t.color }}>
+          {icon.svg}
+        </span>
+      ) : (
+        <span
+          className={cn('border-2', half ? 'size-2.5' : 'size-[18px]')}
+          style={{
+            borderStyle: icon.style,
+            borderColor: t.color,
+            borderRadius: icon.radius,
+            borderWidth: icon.borderWidth,
+            background: icon.fill ?? 'transparent',
+          }}
+        />
+      )}
       <span className={cn('font-mono text-[9px] font-medium', half ? 'text-[8.5px] tracking-normal' : 'tracking-[.04em]')}>{label}</span>
       <span className={cn('absolute right-1 font-mono font-medium text-lab-text/45', half ? 'top-px text-[7px]' : 'top-[3px] text-[9px]')}>
         {hotkey}
@@ -104,6 +111,22 @@ type ToolRailProps = {
   onMask?: () => void
   onZoom?: (step: 1 | -1) => void
 }
+
+// «Назад» — изогнутая стрелка отмены ↶
+const UNDO_ARROW = (
+  <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="2" className="size-full" aria-hidden="true">
+    <path d="M6.5 2.5 2.5 6.5l4 4" />
+    <path d="M3 6.5h8a4.5 4.5 0 0 1 0 9H7" />
+  </svg>
+)
+
+// «Линейка» — планка с делениями: средняя риска длиннее
+const RULER = (
+  <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="2" className="size-full" aria-hidden="true">
+    <rect x="1" y="5" width="16" height="8" />
+    <path d="M5 6v3M9 6v4.5M13 6v3" strokeWidth="1.5" />
+  </svg>
+)
 
 const CROSS = 'linear-gradient(45deg,transparent 42%,#E01E3C 42%,#E01E3C 58%,transparent 58%),linear-gradient(-45deg,transparent 42%,#E01E3C 42%,#E01E3C 58%,transparent 58%)'
 
@@ -174,7 +197,7 @@ export function ToolRail({ tool = null, mask, canUndo, canDelete, zoom = 1, disa
         label="НАЗАД"
         hotkey="P"
         tone="red"
-        icon={{ style: 'solid', radius: '50%' }}
+        icon={{ svg: UNDO_ARROW }}
         disabled={disabled || !canUndo}
         onClick={onUndo}
         title="Отменить последнее действие (P или Ctrl+Z)"
@@ -194,11 +217,7 @@ export function ToolRail({ tool = null, mask, canUndo, canDelete, zoom = 1, disa
         label="ЛИНЕЙКА"
         hotkey="R"
         tone="blue"
-        icon={{
-          style: 'solid',
-          radius: '1px',
-          fill: 'linear-gradient(135deg,transparent 45%,#5170FF 45%,#5170FF 55%,transparent 55%)',
-        }}
+        icon={{ svg: RULER }}
         active={tool === 'ruler'}
         disabled={disabled}
         onClick={() => onTool?.('ruler')}
