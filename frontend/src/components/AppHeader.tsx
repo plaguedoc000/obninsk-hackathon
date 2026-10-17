@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import AuthButton from '@/components/AuthButton'
 import { cn } from '@/lib/utils'
 
 type Props = {
@@ -12,7 +13,7 @@ type Props = {
 const SAVE_BUTTON =
   'flex h-9 items-center border border-lab-sky/40 px-4 whitespace-nowrap transition-colors outline-none hover:bg-lab-blue/15 focus-visible:ring-2 focus-visible:ring-lab-blue focus-visible:ring-inset'
 
-// Шапка: логотип и две кнопки — «Сохранить» и «Масштабирование».
+// Шапка: логотип, вход через Флида ID и две кнопки — «Сохранить» и «Масштабирование».
 // «Сохранить» раскрывается в две: «Сохранить CSV» (таблица) и «Сохранить файлы» (фото в общем масштабе)
 export default function AppHeader({ picking, normalized, onScale, onSaveCsv, onSaveFiles }: Props) {
   const [open, setOpen] = useState(false)
@@ -38,7 +39,8 @@ export default function AppHeader({ picking, normalized, onScale, onSaveCsv, onS
 
   return (
     <header className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2.5 border-b border-lab-sky/20 px-4 py-3 lg:h-16 lg:px-7 lg:py-0">
-      <div className="flex min-w-0 items-center gap-[18px]">
+      {/* grow: на телефоне «Войти» стоит справа от логотипа, а кнопки ниже; на компьютере — перед ними */}
+      <div className="flex min-w-0 grow items-center gap-[18px]">
         <span
           className="flex size-[34px] shrink-0 items-center justify-center border-2 border-lab-blue shadow-[0_0_16px_rgba(81,112,255,.4)]"
           aria-hidden="true"
@@ -46,6 +48,7 @@ export default function AppHeader({ picking, normalized, onScale, onSaveCsv, onS
           <span className="size-3 bg-lab-red" />
         </span>
         <h1 className="font-display text-[15px] font-medium tracking-[.14em] whitespace-nowrap sm:text-[17px]">ОДИН МАСШТАБ</h1>
+        <AuthButton className="ml-auto" />
       </div>
 
       <nav className="flex gap-2 font-mono text-xs font-medium tracking-[.08em]">
