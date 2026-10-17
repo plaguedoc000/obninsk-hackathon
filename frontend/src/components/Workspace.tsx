@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode, Ref } from 'react'
+import { useId, type CSSProperties, type ReactNode, type Ref } from 'react'
 import type { Tool } from '@/lib/types'
 import { useMobile } from '@/lib/useMobile'
 import { cn } from '@/lib/utils'
@@ -53,16 +53,38 @@ type RailButtonProps = {
   title?: string
 }
 
+// Тёмная подсказка справа от кнопки при наведении — вместо белой браузерной.
+// Обёртка ловит наведение и на бледной (выключенной) кнопке
+export function Tip({ id, head, hotkey, text, children }: { id?: string; head: string; hotkey?: string; text: string; children: ReactNode }) {
+  return (
+    <div className="group/tip relative flex shrink-0">
+      {children}
+      <div
+        id={id}
+        role="tooltip"
+        className="pointer-events-none invisible absolute top-1/2 left-full z-50 ml-3 w-max max-w-[260px] -translate-y-1/2 border border-[#3549A6] bg-[#0A0D22] px-3 py-2 opacity-0 shadow-[0_8px_30px_rgba(4,5,15,.9),0_0_20px_rgba(53,73,166,.3)] transition-opacity group-hover/tip:visible group-hover/tip:opacity-100 group-hover/tip:delay-150 group-has-[:focus-visible]/tip:visible group-has-[:focus-visible]/tip:opacity-100"
+      >
+        <div className="mb-1 flex items-center gap-2 font-mono text-[11px] tracking-[.1em] text-white">
+          {head}
+          {hotkey && <span className="border border-lab-sky/50 px-1 text-[10px] text-lab-text/75">{hotkey}</span>}
+        </div>
+        <div className="text-[12.5px] leading-[1.4] text-lab-text/80">{text}</div>
+      </div>
+    </div>
+  )
+}
+
 // Кнопка инструмента — квадрат 50×50, все одинаковые: значок, подпись и буква горячей клавиши в углу
 export function RailButton({ label, hotkey, tone, icon, onClick, active, disabled, title }: RailButtonProps) {
   const t = TONES[tone]
-  return (
+  const tipId = useId()
+  const button = (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      title={title}
       aria-pressed={active}
+      aria-describedby={title ? tipId : undefined}
       className="relative flex size-[50px] shrink-0 flex-col items-center justify-center gap-1.5 border pt-1 text-lab-text outline-none focus-visible:ring-2 focus-visible:ring-lab-blue disabled:cursor-default disabled:opacity-30"
       style={{
         borderColor: active ? t.color : 'rgba(100,149,237,.25)',
@@ -92,6 +114,13 @@ export function RailButton({ label, hotkey, tone, icon, onClick, active, disable
         {hotkey}
       </span>
     </button>
+  )
+  return title ? (
+    <Tip id={tipId} head={label} hotkey={hotkey} text={title}>
+      {button}
+    </Tip>
+  ) : (
+    button
   )
 }
 
@@ -150,7 +179,7 @@ function DesktopRail({ tool = null, mask, canUndo, canDelete, zoom = 1, disabled
             active={tool === 'marker'}
             disabled={disabled}
             onClick={() => onTool?.('marker')}
-            title="Эталон-квадрат 1×1 см: подвиньте уголки синей рамки на углы квадрата. Рамки нет — щёлкните 4 угла квадрата (E)"
+            title="Квадрат 1×1 см на фото. Подвиньте уголки синей рамки на углы квадрата. Рамки нет — щёлкните 4 угла квадрата"
           />
           <RailButton
             label="ОТРЕЗОК"
@@ -160,7 +189,7 @@ function DesktopRail({ tool = null, mask, canUndo, canDelete, zoom = 1, disabled
             active={tool === 'segment'}
             disabled={disabled}
             onClick={() => onTool?.('segment')}
-            title="Эталон-отрезок: протяните линию по предмету известной длины (например, по шкале линейки на фото) и введите её длину в мм (S)"
+            title="Протяните линию по предмету известной длины (например, по шкале линейки на фото) и введите её длину в мм"
           />
         </div>
       </div>
@@ -172,7 +201,7 @@ function DesktopRail({ tool = null, mask, canUndo, canDelete, zoom = 1, disabled
         active={tool === 'area'}
         disabled={disabled}
         onClick={() => onTool?.('area')}
-        title="Область: щёлкайте по краю объекта точка за точкой. Замкнуть — щелчок по первой точке или Enter"
+        title="Щёлкайте по краю объекта точка за точкой. Замкнуть — щелчок по первой точке или Enter"
       />
       <RailButton
         label="АВТО"
@@ -182,7 +211,7 @@ function DesktopRail({ tool = null, mask, canUndo, canDelete, zoom = 1, disabled
         active={tool === 'auto'}
         disabled={disabled}
         onClick={() => onTool?.('auto')}
-        title="Авто: щёлкните внутри объекта — контур найдётся сам. Shift+щелчок — добавить к выбранной области"
+        title="Щёлкните внутри объекта — контур найдётся сам. Shift+щелчок — добавить к выбранной области"
       />
       <RailButton
         label="УДАЛИТЬ"
@@ -191,7 +220,7 @@ function DesktopRail({ tool = null, mask, canUndo, canDelete, zoom = 1, disabled
         icon={{ style: 'solid', radius: '2px', fill: CROSS }}
         disabled={disabled || !canDelete}
         onClick={onDelete}
-        title="Удалить выбранную область (Delete)"
+        title="Удалить выбранную область"
       />
       <RailButton
         label="НАЗАД"
@@ -200,7 +229,7 @@ function DesktopRail({ tool = null, mask, canUndo, canDelete, zoom = 1, disabled
         icon={{ svg: UNDO_ARROW }}
         disabled={disabled || !canUndo}
         onClick={onUndo}
-        title="Отменить последнее действие (P или Ctrl+Z)"
+        title="Отменить последнее действие. Ещё можно Ctrl+Z"
       />
       <RailButton
         label="МАСКА"
@@ -210,7 +239,7 @@ function DesktopRail({ tool = null, mask, canUndo, canDelete, zoom = 1, disabled
         active={mask}
         disabled={disabled}
         onClick={onMask}
-        title="Маска: залить области цветом"
+        title="Залить области цветом"
       />
       <RailButton
         label="ЛИНЕЙКА"
@@ -220,34 +249,35 @@ function DesktopRail({ tool = null, mask, canUndo, canDelete, zoom = 1, disabled
         active={tool === 'ruler'}
         disabled={disabled}
         onClick={() => onTool?.('ruler')}
-        title="Линейка: протяните линию — покажет расстояние в сантиметрах (R)"
+        title="Протяните линию — покажет расстояние в сантиметрах"
       />
       <span className="lg:flex-1" />
-      <div
-        className={cn(
-          'flex shrink-0 items-center border border-lab-sky/25 font-mono text-xs font-medium lg:w-[50px] lg:flex-col',
-          disabled && 'pointer-events-none opacity-30',
-        )}
-        title="Масштаб: Ctrl (⌘) + колесо мыши. При увеличении фото двигается правой кнопкой мыши"
-      >
-        <button
-          type="button"
-          onClick={() => onZoom?.(1)}
-          aria-label="Крупнее"
-          className="flex h-9 w-9 items-center justify-center text-lg hover:bg-lab-blue/15 lg:w-full"
+      <Tip head="МАСШТАБ" text="Ctrl (⌘) + колесо мыши. При увеличении фото двигается правой кнопкой мыши">
+        <div
+          className={cn(
+            'flex shrink-0 items-center border border-lab-sky/25 font-mono text-xs font-medium lg:w-[50px] lg:flex-col',
+            disabled && 'pointer-events-none opacity-30',
+          )}
         >
-          +
-        </button>
-        <div className="flex h-9 items-center px-1 text-[11px] text-lab-text/75 lg:h-7">{Math.round(zoom * 100)}%</div>
-        <button
-          type="button"
-          onClick={() => onZoom?.(-1)}
-          aria-label="Мельче"
-          className="flex h-9 w-9 items-center justify-center text-lg hover:bg-lab-blue/15 lg:w-full"
-        >
-          −
-        </button>
-      </div>
+          <button
+            type="button"
+            onClick={() => onZoom?.(1)}
+            aria-label="Крупнее"
+            className="flex h-9 w-9 items-center justify-center text-lg hover:bg-lab-blue/15 lg:w-full"
+          >
+            +
+          </button>
+          <div className="flex h-9 items-center px-1 text-[11px] text-lab-text/75 lg:h-7">{Math.round(zoom * 100)}%</div>
+          <button
+            type="button"
+            onClick={() => onZoom?.(-1)}
+            aria-label="Мельче"
+            className="flex h-9 w-9 items-center justify-center text-lg hover:bg-lab-blue/15 lg:w-full"
+          >
+            −
+          </button>
+        </div>
+      </Tip>
     </>
   )
 }
