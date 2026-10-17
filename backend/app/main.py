@@ -1,4 +1,4 @@
-"""OneScale — бэкенд для измерения площади по фото с эталоном (кейс 03, Обнинский хакатон 2026).
+"""МераКадр — бэкенд для измерения площади по фото с эталоном (кейс 03, Обнинский хакатон 2026).
 
 Запуск:  uvicorn app.main:app --reload --port 8000
 Документация API в браузере:  http://localhost:8000/api/docs
@@ -24,7 +24,7 @@ store = Store(config.DATA_DIR)
 
 # Документация под /api/: на сервере наружу открыт только этот путь
 app = FastAPI(
-    title="OneScale API",
+    title="МераКадр API",
     docs_url="/api/docs",
     redoc_url=None,
     openapi_url="/api/openapi.json",

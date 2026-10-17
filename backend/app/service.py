@@ -499,7 +499,7 @@ def export_zip(store: Store, image_ids: list[str] | None = None, group: str | No
     calibrated = [m for m in metas if m.get("calibration")]
     report = {
         "generated_at": now_iso(),
-        "software": f"OneScale backend {VERSION}",
+        "software": f"MeraKadr backend {VERSION}",
         "method": METHOD_NOTE,
         "images": [image_view(m) for m in metas],
     }
@@ -521,7 +521,7 @@ def export_zip(store: Store, image_ids: list[str] | None = None, group: str | No
                 used.add(name)
                 z.writestr(name, data)
         z.writestr("README.txt",
-                   "Отчёт OneScale\r\n\r\n"
+                   "Отчёт МераКадр\r\n\r\n"
                    "measurements.csv — таблица измерений (открывается в Excel)\r\n"
                    "report.json — полные параметры калибровки и измерений\r\n"
                    "standardized/ — фото, приведённые к общему масштабу, с сеткой 1 см\r\n\r\n"

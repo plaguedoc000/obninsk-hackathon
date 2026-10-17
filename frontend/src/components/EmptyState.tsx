@@ -3,7 +3,7 @@ import type { Photo } from '@/lib/types'
 
 type Props = { onPick: () => void }
 
-// Экран «новое фото»: подсказка, как снимать, и выбор файла. Инструменты пока бледные
+// Экран «новое фото»: картинка-подсказка и выбор файла. Инструменты пока бледные
 export default function EmptyState({ onPick }: Props) {
   return (
     <Workspace rail={<ToolRail disabled />}>
@@ -16,12 +16,6 @@ export default function EmptyState({ onPick }: Props) {
             <div className="absolute top-[89px] left-0 h-0.5 w-[180px] bg-lab-sky/50" />
             <div className="absolute top-10 left-10 size-[100px] rounded-full border-2 border-dashed border-lab-red" />
             <div className="absolute top-[132px] left-3 size-[30px] bg-lab-text shadow-[0_0_16px_rgba(81,112,255,.6)]" />
-          </div>
-          <div className="flex flex-col items-center gap-2">
-            <h2 className="font-display text-lg font-medium tracking-[.06em]">Положите эталон 1×1 см рядом с участком</h2>
-            <p className="max-w-[460px] text-[15px] leading-normal text-lab-text/62">
-              Снимайте строго сверху, при ровном свете. Эталон и участок должны быть в одной плоскости.
-            </p>
           </div>
           <div className="flex flex-wrap justify-center gap-2.5 font-mono text-xs font-semibold tracking-[.1em]">
             <button

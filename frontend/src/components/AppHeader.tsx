@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import Logo from '@/components/Logo'
 import { cn } from '@/lib/utils'
 
 type Props = {
@@ -38,15 +39,7 @@ export default function AppHeader({ picking, normalized, onScale, onSaveCsv, onS
 
   return (
     <header className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2.5 border-b border-lab-sky/20 px-4 py-3 lg:h-16 lg:px-7 lg:py-0">
-      <div className="flex min-w-0 items-center gap-[18px]">
-        <span
-          className="flex size-[34px] shrink-0 items-center justify-center border-2 border-lab-blue shadow-[0_0_16px_rgba(81,112,255,.4)]"
-          aria-hidden="true"
-        >
-          <span className="size-3 bg-lab-red" />
-        </span>
-        <h1 className="font-display text-[15px] font-medium tracking-[.14em] whitespace-nowrap sm:text-[17px]">ОДИН МАСШТАБ</h1>
-      </div>
+      <Logo />
 
       <nav className="flex gap-2 font-mono text-xs font-medium tracking-[.08em]">
         <div ref={box} className="flex">
