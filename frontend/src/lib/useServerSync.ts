@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { toast } from 'sonner'
 import { api, type ApiImage, type ApiMeasurement } from './api'
-import { markerSig, pointsSig } from './measure'
+import { pointsSig } from './measure'
 import { scaleFromServer, type AreaLink } from './photos'
 import type { Area, Photo } from './types'
 
@@ -85,11 +85,9 @@ export function useServerSync(photos: Photo[], updatePhoto: (id: string, patch: 
 
       // 1. эталон (квадрат или отрезок): пересчёт масштаба пересчитывает и все сохранённые области
       if (photo.marker) {
-        const sig = markerSig(photo.marker, photo.markerMm)
+        const sig = pointsSig(photo.marker)
         if (sig !== state.marker) {
-          const image = photo.segment
-            ? await api.setSegment(id, photo.segment)
-            : await api.setCorners(id, photo.marker, photo.markerMm)
+          const image = photo.segment ? await api.setSegment(id, photo.segment) : await api.setCorners(id, photo.marker)
           applyImage(photoId, image, sig)
         }
       }
@@ -124,7 +122,7 @@ export function useServerSync(photos: Photo[], updatePhoto: (id: string, patch: 
   const needsSync = useCallback((photo: Photo) => {
     const state = synced.current.get(photo.id)
     if (!photo.serverId || !state || photo.status !== 'ready') return false
-    if (photo.marker && markerSig(photo.marker, photo.markerMm) !== state.marker) return true
+    if (photo.marker && pointsSig(photo.marker) !== state.marker) return true
     const closed = photo.areas.filter((a) => a.closed)
     if (closed.some((a) => state.areas.get(a.id)?.sig !== pointsSig(a.points))) return true
     return [...state.areas.keys()].some((id) => !closed.some((a) => a.id === id))
