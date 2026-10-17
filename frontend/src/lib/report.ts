@@ -67,14 +67,16 @@ export async function exportComparePng(photos: Photo[]) {
     ctx.drawImage(await loadImage(photo.url), x, y, w, h)
 
     const s = t / ppm
-    const path = (pts: { x: number; y: number }[]) => {
+    const path = (pts: { x: number; y: number }[], closed = true) => {
       ctx.beginPath()
       pts.forEach((p, i) => (i ? ctx.lineTo(x + p.x * s, y + p.y * s) : ctx.moveTo(x + p.x * s, y + p.y * s)))
-      ctx.closePath()
+      if (closed) ctx.closePath()
     }
     ctx.lineWidth = 3 * u
     ctx.strokeStyle = MARKER_COLOR
-    path(photo.marker!)
+    // эталон: квадрат или отрезок
+    if (photo.segment) path([photo.segment.a, photo.segment.b], false)
+    else path(photo.marker!)
     ctx.stroke()
     photo.areas.forEach((area, i) => {
       if (!area.closed) return

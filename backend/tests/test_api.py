@@ -238,3 +238,56 @@ def test_export_files_needs_marker():
     v = upload("nomarker.jpg", jpeg_bytes(img), detect="false")
     r = client.get("/api/export/files", params={"image_ids": v["id"]})
     assert r.status_code == 409 and r.json()["detail"]["code"] == "NOT_CALIBRATED"
+
+
+def test_segment_reference_by_ruler():
+    """Эталон по отрезку известной длины: масштаб, площадь, смена длины, возврат к квадрату."""
+    img, m, obj = scene(6.0)
+    v = upload("ruler.jpg", jpeg_bytes(img), detect="false")
+    # отрезок 300 пикс. под углом — это 50 мм, значит 6 пикс./мм, как у сцены
+    seg = [[300.0, 900.0], [300.0 + 300 * 0.8, 900.0 - 300 * 0.6]]
+    r = client.put(f"/api/images/{v['id']}/calibration", json={"segment": seg, "segment_mm": 50})
+    assert r.status_code == 200, r.text
+    cal = r.json()["calibration"]
+    assert cal["kind"] == "segment" and cal["perspective_used"] is False
+    assert cal["px_per_mm"] == pytest.approx(6.0, rel=1e-9)
+    assert cal["segment_mm"] == 50 and cal["uncertainty_pct"] < 1.5
+    pv = client.post(f"/api/images/{v['id']}/measurements", json={"points": obj.tolist()}).json()
+    assert pv["area_mm2"] == pytest.approx(1200, rel=1e-6)
+    assert pv["perimeter_mm"] == pytest.approx(140, rel=1e-6)
+
+    # тот же отрезок, но это 25 мм: масштаб вдвое крупнее, площадь вчетверо меньше
+    r = client.put(f"/api/images/{v['id']}/calibration", json={"segment_mm": 25})
+    assert r.json()["calibration"]["kind"] == "segment"
+    assert r.json()["measurements"][0]["area_mm2"] == pytest.approx(300, rel=1e-6)
+
+    # квадрат по углам заменяет отрезок, и сторона эталона снова 10 мм
+    r = client.put(f"/api/images/{v['id']}/calibration", json={"corners": m.tolist()})
+    assert r.json()["calibration"]["kind"] == "square"
+    assert r.json()["measurements"][0]["area_mm2"] == pytest.approx(1200, rel=0.01)
+
+    # подпись в выгрузке и CSV работают и с отрезком
+    client.put(f"/api/images/{v['id']}/calibration", json={"segment": seg, "segment_mm": 50})
+    one = client.get("/api/export/files", params={"image_ids": v["id"]})
+    assert one.status_code == 200 and one.headers["content-type"] == "image/jpeg"
+    zr = client.get("/api/export.zip", params={"image_ids": v["id"]})
+    assert zr.status_code == 200
+
+
+def test_segment_reference_errors():
+    img, _, _ = scene(6.0)
+    v = upload("ruler_bad.jpg", jpeg_bytes(img), detect="false")
+    url = f"/api/images/{v['id']}/calibration"
+    r = client.put(url, json={"segment": [[10, 10], [500, 10]]})
+    assert r.status_code == 422 and r.json()["detail"]["code"] == "NO_SEGMENT_LENGTH"
+    r = client.put(url, json={"segment": [[10, 10]], "segment_mm": 10})
+    assert r.status_code == 422
+    r = client.put(url, json={"segment": [[10, 10], [11, 11]], "segment_mm": 10})
+    assert r.json()["detail"]["code"] == "SEGMENT_TOO_SHORT"
+    r = client.put(url, json={"segment": [[10, 10], [5000, 10]], "segment_mm": 10})
+    assert r.json()["detail"]["code"] == "OUTSIDE_IMAGE"
+    r = client.put(url, json={"segment": [[100, 100], [200, 100]], "segment_mm": 10})
+    assert [w["code"] for w in r.json()["calibration"]["warnings"]] == ["SEGMENT_SHORT"]
+    # «Найти эталон» возвращает квадрат вместо отрезка
+    d = client.post(f"/api/images/{v['id']}/detect", json={}).json()
+    assert d["calibration"]["kind"] == "square"

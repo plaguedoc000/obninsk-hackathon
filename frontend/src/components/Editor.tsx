@@ -4,12 +4,12 @@ import ImageStage, { MAX_ZOOM, type Line, type Norm } from '@/components/ImageSt
 import Workspace, { AreaRow, StageTitle, ToolRail } from '@/components/Workspace'
 import { api } from '@/lib/api'
 import { fmt } from '@/lib/format'
-import { orderQuad, selfIntersects } from '@/lib/geometry'
+import { orderQuad, segmentQuad, selfIntersects } from '@/lib/geometry'
 import { totalsOf } from '@/lib/measure'
 import { newId } from '@/lib/photos'
-import type { Area, Photo, Pt, Tool } from '@/lib/types'
+import type { Area, Photo, Pt, Segment, Tool } from '@/lib/types'
 
-type Snapshot = Pick<Photo, 'marker' | 'markerSource' | 'areas'>
+type Snapshot = Pick<Photo, 'marker' | 'segment' | 'markerSource' | 'areas'>
 
 type Props = {
   photo: Photo
@@ -42,7 +42,7 @@ export default function Editor({ photo, norm, picking, onChange }: Props) {
 
   // «Назад» возвращает эталон и области к состоянию до последнего действия
   function remember() {
-    const snap: Snapshot = { marker: photo.marker, markerSource: photo.markerSource, areas: photo.areas }
+    const snap: Snapshot = { marker: photo.marker, segment: photo.segment, markerSource: photo.markerSource, areas: photo.areas }
     setHistory((h) => [...h.slice(-49), snap])
   }
 
@@ -122,9 +122,33 @@ export default function Editor({ photo, norm, picking, onChange }: Props) {
       return
     }
     remember()
-    onChange(() => ({ marker: orderQuad(next), markerSource: 'manual' }))
+    onChange(() => ({ marker: orderQuad(next), segment: null, markerSource: 'manual' }))
     setMarkerDraft([])
     setTool(null)
+  }
+
+  // Эталон-отрезок: вместо квадрата — отрезок известной длины (например, по шкале линейки на фото)
+  function setSegment(seg: Segment) {
+    onChange(() => ({ segment: seg, marker: segmentQuad(seg), markerSource: 'manual' }))
+  }
+
+  // «Линейка» → «Эталон»: протянутая линия становится эталоном указанной длины
+  function rulerToSegment(mm: number) {
+    if (!ruler) return
+    if (Math.hypot(ruler.b.x - ruler.a.x, ruler.b.y - ruler.a.y) < 4) {
+      toast.error('Отрезок слишком короткий — протяните линию по шкале линейки')
+      return
+    }
+    remember()
+    setSegment({ a: ruler.a, b: ruler.b, mm })
+    setRuler(null)
+    setTool('marker')
+  }
+
+  function segmentLength(mm: number) {
+    if (!photo.segment || mm === photo.segment.mm) return
+    remember()
+    setSegment({ ...photo.segment, mm })
   }
 
   function movePoint(areaId: string, i: number, p: Pt) {
@@ -227,8 +251,11 @@ export default function Editor({ photo, norm, picking, onChange }: Props) {
         selectedId={selected?.id ?? null}
         ruler={ruler}
         onDragStart={remember}
-        onMarkerChange={(marker) => onChange(() => ({ marker, markerSource: 'manual' }))}
+        onMarkerChange={(marker) => onChange(() => ({ marker, segment: null, markerSource: 'manual' }))}
         onMarkerPoint={markerPoint}
+        onSegmentChange={setSegment}
+        onSegmentLength={segmentLength}
+        onRulerToSegment={rulerToSegment}
         onMovePoint={movePoint}
         onDraftPoint={draftPoint}
         onCloseDraft={closeDraft}

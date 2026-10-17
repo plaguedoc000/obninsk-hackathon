@@ -39,6 +39,7 @@ TILT_SIDE_RATIO = _env_float("ONESCALE_TILT_SIDE_RATIO", 0.08)
 
 # Предупреждения
 SMALL_MARKER_PX = _env_float("ONESCALE_SMALL_MARKER_PX", 60.0)       # эталон мелкий
+SMALL_SEGMENT_PX = _env_float("ONESCALE_SMALL_SEGMENT_PX", 150.0)    # эталон-отрезок короткий
 STRONG_TILT_DEG = _env_float("ONESCALE_STRONG_TILT_DEG", 12.0)       # заметный наклон камеры
 NOT_SQUARE_RATIO = _env_float("ONESCALE_NOT_SQUARE_RATIO", 0.06)     # эталон не квадратный
 FAR_FROM_MARKER_SIDES = _env_float("ONESCALE_FAR_SIDES", 12.0)       # объект далеко от эталона

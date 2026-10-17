@@ -1,8 +1,8 @@
-import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { Scan, StageFrame } from '@/components/Workspace'
 import { fmt } from '@/lib/format'
 import { clamp, perimeterMm } from '@/lib/geometry'
-import type { Photo, Pt, Quad, Tool } from '@/lib/types'
+import type { Photo, Pt, Quad, Segment, Tool } from '@/lib/types'
 
 type Drag =
   | { kind: 'corner'; index: number }
@@ -10,6 +10,7 @@ type Drag =
   | { kind: 'point'; areaId: string; index: number }
   | { kind: 'tap'; x: number; y: number; shift: boolean }
   | { kind: 'ruler'; a: Pt }
+  | { kind: 'segment'; end: 'a' | 'b' }
 
 type Pan = { x: number; y: number; cx: number; cy: number }
 
@@ -32,6 +33,9 @@ type Props = {
   onDragStart: () => void
   onMarkerChange: (q: Quad) => void
   onMarkerPoint: (p: Pt) => void
+  onSegmentChange: (seg: Segment) => void
+  onSegmentLength: (mm: number) => void
+  onRulerToSegment: (mm: number) => void
   onMovePoint: (areaId: string, index: number, p: Pt) => void
   onDraftPoint: (p: Pt) => void
   onCloseDraft: () => void
@@ -79,6 +83,9 @@ export default function ImageStage({
   onDragStart,
   onMarkerChange,
   onMarkerPoint,
+  onSegmentChange,
+  onSegmentLength,
+  onRulerToSegment,
   onMovePoint,
   onDraftPoint,
   onCloseDraft,
@@ -87,7 +94,7 @@ export default function ImageStage({
   onRuler,
   onZoom,
 }: Props) {
-  const { width: W, height: H, marker } = photo
+  const { width: W, height: H, marker, segment } = photo
   const frameRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   const drag = useRef<Drag | null>(null)
@@ -210,7 +217,8 @@ export default function ImageStage({
     setMouse(p)
     if (tool === 'marker') {
       e.stopPropagation()
-      if (!marker) onMarkerPoint(p)
+      // нет эталона или он отрезок — щелчки ставят углы нового квадрата
+      if (!marker || segment) onMarkerPoint(p)
     } else if (tool === 'ruler') {
       onRuler({ a: p, b: p })
       start(e, { kind: 'ruler', a: p })
@@ -234,6 +242,8 @@ export default function ImageStage({
       const dx = clamp(p.x - d.start.x, -Math.min(...xs), W - Math.max(...xs))
       const dy = clamp(p.y - d.start.y, -Math.min(...ys), H - Math.max(...ys))
       onMarkerChange(d.orig.map((c) => ({ x: c.x + dx, y: c.y + dy })) as Quad)
+    } else if (d.kind === 'segment' && segment) {
+      onSegmentChange({ ...segment, [d.end]: p })
     } else if (d.kind === 'point') {
       onMovePoint(d.areaId, d.index, p)
     } else if (d.kind === 'ruler') {
@@ -356,7 +366,17 @@ export default function ImageStage({
           )
         })}
 
-        {marker && (
+        {/* эталон-отрезок: линия с засечками на концах, как размерная линия на чертеже */}
+        {segment && (
+          <SegmentShape
+            seg={segment}
+            u={u}
+            glow={glow}
+            handles={interactive && tool === 'marker'}
+            onGrab={(end, e) => grab(e, { kind: 'segment', end })}
+          />
+        )}
+        {marker && !segment && (
           <polygon
             points={toPoints(marker)}
             fill="transparent"
@@ -368,10 +388,10 @@ export default function ImageStage({
             onPointerDown={interactive ? (e) => grab(e, { kind: 'marker', start: toImage(e), orig: marker }) : undefined}
           />
         )}
-        {(marker ?? markerDraft).map((c, i) => (
+        {(segment ? markerDraft : (marker ?? markerDraft)).map((c, i) => (
           <g key={i}>
             <circle cx={c.x} cy={c.y} r={7 * u} fill={BLUE} stroke="#fff" strokeWidth={2} vectorEffect="non-scaling-stroke" style={glow} pointerEvents="none" />
-            {interactive && marker && tool === 'marker' && (
+            {interactive && marker && !segment && tool === 'marker' && (
               <circle
                 cx={c.x}
                 cy={c.y}
@@ -445,7 +465,7 @@ export default function ImageStage({
       ? zoom > 1
         ? 'grab'
         : 'default'
-      : tool === 'marker' && marker
+      : tool === 'marker' && marker && !segment
         ? 'default'
         : 'crosshair'
   const showLens = ready && !!mouse && !!tool && !busy && !panning && (!touch || dragging)
@@ -498,10 +518,122 @@ export default function ImageStage({
         </div>
       )}
 
+      {/* «Линейка»: протянутую линию можно сделать эталоном — ввести, сколько в ней мм */}
+      {ready && ruler && !dragging && Math.hypot(ruler.b.x - ruler.a.x, ruler.b.y - ruler.a.y) >= 4 && (
+        <MmForm
+          key={`${ruler.a.x},${ruler.a.y},${ruler.b.x},${ruler.b.y}`}
+          left={left + ((ruler.a.x + ruler.b.x) / 2) * s}
+          top={top + ((ruler.a.y + ruler.b.y) / 2) * s}
+          button="ЭТАЛОН"
+          title="Сделать эталоном: эта линия — столько мм (например, 50 мм по шкале линейки на фото)"
+          onSubmit={onRulerToSegment}
+        />
+      )}
+
+      {/* подпись эталона-отрезка; в «Эталоне» длину можно поправить */}
+      {ready && segment && !dragging && !ruler && (
+        tool === 'marker' ? (
+          <MmForm
+            key={segment.mm}
+            left={left + ((segment.a.x + segment.b.x) / 2) * s}
+            top={top + ((segment.a.y + segment.b.y) / 2) * s}
+            value={segment.mm}
+            button="OK"
+            title="Длина эталона-отрезка, мм"
+            onSubmit={onSegmentLength}
+          />
+        ) : (
+          <div
+            className="pointer-events-none absolute -translate-x-1/2 translate-y-2.5 border border-lab-blue bg-lab-bg/90 px-1.5 py-0.5 font-mono text-[11px] font-semibold whitespace-nowrap text-white"
+            style={{ left: left + ((segment.a.x + segment.b.x) / 2) * s, top: top + ((segment.a.y + segment.b.y) / 2) * s }}
+          >
+            ЭТАЛОН {fmt(segment.mm, segment.mm % 1 ? 1 : 0)} мм
+          </div>
+        )
+      )}
+
       {showLens && mouse && <Lens photo={photo} point={mouse} s={s} left={left} top={top} size={size} shapes={shapes} />}
 
       {ready && zoom > 1 && <Minimap photo={photo} view={{ x0: cx - hx, x1: cx + hx, y0: cy - hy, y1: cy + hy }} onCenter={setCenter} />}
     </StageFrame>
+  )
+}
+
+// Эталон-отрезок на фото. handles — концы можно тянуть (в инструменте «Эталон»)
+function SegmentShape({ seg, u, glow, handles, onGrab }: {
+  seg: Segment
+  u: number
+  glow: CSSProperties
+  handles: boolean
+  onGrab: (end: 'a' | 'b', e: ReactPointerEvent) => void
+}) {
+  const len = Math.hypot(seg.b.x - seg.a.x, seg.b.y - seg.a.y) || 1
+  // засечка поперёк отрезка, 16 px экрана
+  const nx = (-(seg.b.y - seg.a.y) / len) * 8 * u
+  const ny = ((seg.b.x - seg.a.x) / len) * 8 * u
+  return (
+    <g>
+      <line x1={seg.a.x} y1={seg.a.y} x2={seg.b.x} y2={seg.b.y} stroke={BLUE} strokeWidth={2} vectorEffect="non-scaling-stroke" style={glow} pointerEvents="none" />
+      {(['a', 'b'] as const).map((end) => {
+        const p = seg[end]
+        return (
+          <g key={end}>
+            <line x1={p.x - nx} y1={p.y - ny} x2={p.x + nx} y2={p.y + ny} stroke={BLUE} strokeWidth={2} vectorEffect="non-scaling-stroke" pointerEvents="none" />
+            <circle cx={p.x} cy={p.y} r={4 * u} fill={BLUE} stroke="#fff" strokeWidth={1.5} vectorEffect="non-scaling-stroke" pointerEvents="none" />
+            {handles && (
+              <circle cx={p.x} cy={p.y} r={14 * u} fill="transparent" className="cursor-grab" onPointerDown={(e) => onGrab(end, e)} />
+            )}
+          </g>
+        )
+      })}
+    </g>
+  )
+}
+
+// Поле «__ мм» с кнопкой под серединой линии: длина эталона-отрезка
+function MmForm({ left, top, value, button, title, onSubmit }: {
+  left: number
+  top: number
+  value?: number
+  button: string
+  title: string
+  onSubmit: (mm: number) => void
+}) {
+  const [text, setText] = useState(value ? String(value).replace('.', ',') : '')
+  const mm = Number(text.replace(',', '.').trim())
+  const ok = text.trim() !== '' && Number.isFinite(mm) && mm >= 0.1 && mm <= 10000
+
+  function submit(e: FormEvent) {
+    e.preventDefault()
+    if (ok) onSubmit(mm)
+  }
+
+  return (
+    <form
+      onSubmit={submit}
+      onPointerDown={(e) => e.stopPropagation()}
+      title={title}
+      className="absolute z-20 flex -translate-x-1/2 translate-y-2.5 items-center gap-1 border border-lab-blue bg-lab-bg/95 p-1 font-mono text-xs font-medium text-lab-text shadow-[0_0_14px_rgba(81,112,255,.45)]"
+      style={{ left, top }}
+    >
+      <input
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        inputMode="decimal"
+        placeholder="длина"
+        aria-label="Длина отрезка, мм"
+        autoFocus={!value}
+        className="h-7 w-16 border border-lab-sky/40 bg-transparent px-1.5 text-white outline-none placeholder:text-lab-text/40 focus:border-lab-blue"
+      />
+      <span className="pr-1 text-lab-text/70">мм</span>
+      <button
+        type="submit"
+        disabled={!ok}
+        className="h-7 bg-lab-blue px-2 font-semibold tracking-[.08em] text-white disabled:opacity-40"
+      >
+        {button}
+      </button>
+    </form>
   )
 }
 

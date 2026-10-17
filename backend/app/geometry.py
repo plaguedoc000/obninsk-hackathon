@@ -305,6 +305,7 @@ def build_calibration(
             warnings.append(_warn("MARKER_AT_EDGE", "Эталон у самого края кадра — там сильнее искажения объектива."))
 
     return {
+        "kind": "square",
         "corners_px": c.round(3).tolist(),
         "marker_size_mm": float(marker_size_mm),
         "method": method,
@@ -330,6 +331,78 @@ def build_calibration(
         "pose_ensemble": pose["ensemble"] if pose else None,
         "focal_px": focal_px,
         "focal_from_exif": bool(focal35_mm),
+        "warnings": warnings,
+    }
+
+
+def segment_square(segment_px: np.ndarray, length_mm: float, side_mm: float) -> np.ndarray:
+    """Квадрат side_mm×side_mm в масштабе отрезка: центр — середина отрезка, стороны — вдоль него и поперёк."""
+    a, b = segment_px
+    d = b - a
+    s = float(np.hypot(*d)) * side_mm / length_mm
+    u = d / np.hypot(*d) * s / 2
+    n = np.array([-u[1], u[0]])
+    m = (a + b) / 2
+    return order_corners(np.array([m - u - n, m + u - n, m + u + n, m - u + n]))
+
+
+def build_segment_calibration(segment_px, length_mm: float, image_size: tuple[int, int] | None = None,
+                              sigma_px: float | None = None) -> dict:
+    """Калибровка по отрезку известной длины — например, по шкале линейки на фото.
+    Даёт только масштаб: наклон камеры по отрезку не виден, поэтому снимать нужно сверху.
+    Чтобы остальной код работал как с квадратом, рядом строим «виртуальный» квадрат стороной
+    DEFAULT_MARKER_MM в масштабе отрезка."""
+    if not (0.1 <= length_mm <= 10000):
+        raise bad_input("BAD_SEGMENT_LENGTH", "Длина отрезка должна быть от 0,1 до 10 000 мм")
+    seg = to_points(segment_px, min_points=2, max_points=2, name="segment")
+    len_px = float(np.hypot(*(seg[1] - seg[0])))
+    if len_px < 4:
+        raise bad_input("SEGMENT_TOO_SHORT", "Концы отрезка слишком близко друг к другу (меньше 4 пикселей)")
+    px_per_mm = len_px / length_mm
+    side_mm = config.DEFAULT_MARKER_MM
+    corners = segment_square(seg, length_mm, side_mm)
+    side_px = side_mm * px_per_mm
+    affine = fit_affine(corners, marker_square_mm(side_mm))
+
+    sigma_px = max(float(sigma_px or config.MANUAL_CORNER_SIGMA_PX), config.MIN_AUTO_CORNER_SIGMA_PX)
+    # длина отрезка неточна на ошибку двух концов; плюс допуск шкалы
+    rel_scale = math.sqrt((math.sqrt(2) * sigma_px / len_px) ** 2 + (config.MARKER_TOLERANCE_MM / length_mm) ** 2)
+    area_unc_pct = 200.0 * rel_scale
+
+    warnings: list[dict] = []
+    if len_px < config.SMALL_SEGMENT_PX:
+        warnings.append(_warn(
+            "SEGMENT_SHORT",
+            f"Отрезок короткий ({len_px:.0f} пикс.). Проведите его по всей видимой шкале линейки — "
+            f"тогда погрешность станет меньше (сейчас около ±{area_unc_pct:.1f}%).",
+        ))
+
+    return {
+        "kind": "segment",
+        "segment_px": seg.round(3).tolist(),
+        "segment_mm": float(length_mm),
+        "segment_len_px": len_px,
+        "corners_px": corners.round(3).tolist(),
+        "marker_size_mm": float(side_mm),
+        "method": "manual",
+        "perspective_mode": "off",
+        "perspective_used": False,
+        "px_per_mm": px_per_mm,
+        "mm_per_px": 1.0 / px_per_mm,
+        "marker_side_px": side_px,
+        "marker_sides_px": [round(side_px, 3)] * 4,
+        "marker_sides_mm": [side_mm] * 4,
+        "marker_angles_deg": [90.0] * 4,
+        "trapezoid_ratio": 0.0,
+        "shape_tilt_deg": 0.0,
+        "sigma_px": sigma_px,
+        "uncertainty_pct": area_unc_pct,
+        "affine": affine.tolist(),
+        "homography": affine.tolist(),
+        "plane": {"source": "segment"},
+        "pose_ensemble": None,
+        "focal_px": None,
+        "focal_from_exif": False,
         "warnings": warnings,
     }
 

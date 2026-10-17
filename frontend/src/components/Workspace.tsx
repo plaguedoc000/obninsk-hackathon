@@ -111,7 +111,7 @@ export function ToolRail({ tool = null, mask, canUndo, canDelete, zoom = 1, disa
         active={tool === 'marker'}
         disabled={disabled}
         onClick={() => onTool?.('marker')}
-        title="Эталон: подвиньте уголки синей рамки на углы квадрата 1×1 см. Нет рамки — щёлкните 4 угла квадрата"
+        title="Эталон: подвиньте уголки синей рамки на углы квадрата 1×1 см. Нет рамки — щёлкните 4 угла квадрата. Нет квадрата — проведите «Линейкой» отрезок известной длины и нажмите «Эталон»"
       />
       {/* «Авто» — низкая кнопка вплотную под «Областью» */}
       <div className="flex shrink-0 flex-col">
@@ -178,7 +178,7 @@ export function ToolRail({ tool = null, mask, canUndo, canDelete, zoom = 1, disa
         active={tool === 'ruler'}
         disabled={disabled}
         onClick={() => onTool?.('ruler')}
-        title="Линейка: протяните линию — покажет расстояние в сантиметрах"
+        title="Линейка: протяните линию — покажет расстояние в сантиметрах. Линию по шкале линейки на фото можно сделать эталоном: введите её длину в мм"
       />
       <span className="lg:flex-1" />
       <div

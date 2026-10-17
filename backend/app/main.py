@@ -79,6 +79,8 @@ class CalibrationRequest(BaseModel):
     candidate_index: Optional[int] = Field(None, ge=0, description="Или номер кандидата из результата /detect")
     marker_size_mm: Optional[float] = Field(None, gt=0, description="Сторона эталона, мм")
     perspective: Optional[Literal["auto", "on", "off"]] = Field(None, description="Исправление наклона: auto / on / off")
+    segment: Optional[list[Point]] = Field(None, description="Или 2 конца отрезка известной длины [[x,y],[x,y]] — например, по линейке")
+    segment_mm: Optional[float] = Field(None, gt=0, description="Длина этого отрезка, мм")
 
 
 class MeasurementRequest(BaseModel):
@@ -225,9 +227,10 @@ def detect(image_id: str, body: DetectRequest = DetectRequest()):
 
 
 @app.put("/api/images/{image_id}/calibration", tags=["Эталон"],
-         summary="Задать эталон: 4 угла вручную, выбрать кандидата или поменять сторону эталона")
+         summary="Задать эталон: 4 угла квадрата, отрезок известной длины, выбрать кандидата или поменять сторону эталона")
 def put_calibration(image_id: str, body: CalibrationRequest):
-    meta = service.set_calibration(store, image_id, body.corners, body.candidate_index, body.marker_size_mm, body.perspective)
+    meta = service.set_calibration(store, image_id, body.corners, body.candidate_index, body.marker_size_mm, body.perspective,
+                                   body.segment, body.segment_mm)
     return service.image_view(meta)
 
 

@@ -143,14 +143,26 @@ export default function CompareView({ photos }: Props) {
                                 vectorEffect="non-scaling-stroke"
                               />
                             ))}
-                          {c.p.marker && (
-                            <polygon
-                              points={c.p.marker.map((q) => `${q.x},${q.y}`).join(' ')}
-                              fill="none"
+                          {c.p.segment ? (
+                            <line
+                              x1={c.p.segment.a.x}
+                              y1={c.p.segment.a.y}
+                              x2={c.p.segment.b.x}
+                              y2={c.p.segment.b.y}
                               stroke="#5170FF"
                               strokeWidth={2}
                               vectorEffect="non-scaling-stroke"
                             />
+                          ) : (
+                            c.p.marker && (
+                              <polygon
+                                points={c.p.marker.map((q) => `${q.x},${q.y}`).join(' ')}
+                                fill="none"
+                                stroke="#5170FF"
+                                strokeWidth={2}
+                                vectorEffect="non-scaling-stroke"
+                              />
+                            )
                           )}
                         </svg>
                       </div>

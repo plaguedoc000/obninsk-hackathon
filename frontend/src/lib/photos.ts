@@ -21,6 +21,7 @@ export function createPhoto(file: File): Photo {
     height: 0,
     status: 'loading',
     marker: null,
+    segment: null,
     markerSource: null,
     server: null,
     areas: [],
@@ -30,12 +31,14 @@ export function createPhoto(file: File): Photo {
 export const toQuad = (corners: [number, number][]) => corners.map(([x, y]) => ({ x, y })) as Quad
 
 // Эталон и масштаб из ответа бэкенда
-export function scaleFromServer(image: ApiImage): Pick<Photo, 'marker' | 'markerSource' | 'server'> {
+export function scaleFromServer(image: ApiImage): Pick<Photo, 'marker' | 'segment' | 'markerSource' | 'server'> {
   const cal = image.calibration
-  if (!cal) return { marker: null, markerSource: null, server: null }
+  if (!cal) return { marker: null, segment: null, markerSource: null, server: null }
   const marker = toQuad(cal.corners_px)
+  const seg = cal.kind === 'segment' && cal.segment_px && cal.segment_mm ? cal.segment_px : null
   return {
     marker,
+    segment: seg ? { a: { x: seg[0][0], y: seg[0][1] }, b: { x: seg[1][0], y: seg[1][1] }, mm: cal.segment_mm! } : null,
     markerSource: cal.method,
     server: { sig: pointsSig(marker), pxPerMm: cal.px_per_mm, uncertaintyPct: cal.uncertainty_pct, warnings: cal.warnings },
   }
