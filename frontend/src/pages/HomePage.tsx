@@ -74,6 +74,8 @@ export default function HomePage() {
 
       const failed: string[] = []
       let missing = 0
+      // эталон найден по цвету (жёлтый, розовый квадрат) — пусть человек проверит, что это не наклейка
+      const byColor: string[] = []
       // по одному: сервер на каждом фото ищет эталон
       for (const [i, photo] of created.entries()) {
         try {
@@ -96,6 +98,7 @@ export default function HomePage() {
           sync.register(ready)
           updatePhoto(photo.id, ready)
           if (!ready.marker) missing++
+          if (image.detection?.warnings?.some((w) => w.code === 'MARKER_BY_COLOR')) byColor.push(photo.name)
         } catch (e) {
           failed.push(`${photo.name} — ${e instanceof Error ? e.message : 'ошибка'}`)
           setPhotos((prev) => prev.filter((p) => p.id !== photo.id))
@@ -105,6 +108,8 @@ export default function HomePage() {
       if (failed.length) toast.error(`Не удалось загрузить: ${failed.join('; ')}`)
       if (missing) toast.warning(`Эталон не найден на ${missing} из ${ok} фото — укажите его вручную`)
       else if (ok) toast.success(ok === 1 ? 'Эталон найден' : `Эталон найден на всех фото: ${ok}`)
+      if (byColor.length)
+        toast.warning(`Эталон найден по цвету: ${byColor.join(', ')}. Проверьте, что это квадрат 1×1 см, а не наклейка или этикетка`)
     },
     [updatePhoto, sync],
   )

@@ -107,11 +107,11 @@ def image_view(meta: dict, with_measurements: bool = True) -> dict:
 
 # ---------------------------------------------------------------- эталон
 
-def run_detection(store: Store, image_id: str, polarity: str = "dark", marker_size_mm: float | None = None,
+def run_detection(store: Store, image_id: str, polarity: str = "any", marker_size_mm: float | None = None,
                   auto_calibrate: bool = True, perspective: str = "auto") -> dict:
     meta = store.get(image_id)
-    if polarity not in ("dark", "light", "any"):
-        raise bad_input("BAD_POLARITY", "polarity: допустимо 'dark', 'light' или 'any'")
+    if polarity not in ("dark", "light", "color", "any"):
+        raise bad_input("BAD_POLARITY", "polarity: допустимо 'dark', 'light', 'color' или 'any'")
     bgr = store.load_bgr(image_id)
     det = detect_marker(bgr, polarity=polarity)
     meta["detection"] = det

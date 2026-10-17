@@ -67,3 +67,45 @@ def test_light_marker_polarity():
     img = render(bg=(40, 40, 40), shapes=[(m, (235, 235, 235))])
     det = detect_marker(img, polarity="light")
     assert det["found"] and corner_error(det["best"]["corners_px"], m) < 0.3
+
+
+def test_white_marker_found_by_default():
+    # белый квадрат на тёмном столе находится без подсказки, какой эталон искать
+    m = rect_corners(400, 400, 60, 60, 12)
+    img = render(bg=(40, 40, 40), shapes=[(m, (235, 235, 235))])
+    det = detect_marker(img)
+    assert det["best"]["polarity"] == "light" and corner_error(det["best"]["corners_px"], m) < 0.3
+    assert not det["warnings"]
+
+
+@pytest.mark.parametrize("color,polarity", [
+    ((0, 220, 245), "color"),  # жёлтый на белом: по яркости почти не отличается — находится по цвету
+    ((60, 170, 70), "dark"),   # зелёный и синий заметно темнее белого
+    ((200, 120, 40), "dark"),
+])
+def test_color_marker_on_white(color, polarity):
+    m = rect_corners(500, 400, 60, 60, 20)
+    img = render(bg=(236, 238, 238), shapes=[(m, color)])
+    det = detect_marker(img)
+    assert det["best"]["polarity"] == polarity and corner_error(det["best"]["corners_px"], m) < 0.3
+    # найденный по цвету — с просьбой проверить, что это эталон, а не наклейка
+    assert ("MARKER_BY_COLOR" in {w["code"] for w in det["warnings"]}) == (polarity == "color")
+
+
+def test_black_marker_on_white_card_beats_card_and_sticker():
+    # эталон на белой карточке на тёмном столе, рядом жёлтая наклейка: выбран чёрный эталон, карточка — подложка
+    card = rect_corners(600, 500, 240, 240, 5)
+    m = rect_corners(600, 500, 60, 60, 5)
+    sticker = rect_corners(1100, 500, 70, 70, -8)
+    img = render(bg=(45, 50, 55), shapes=[(card, (235, 235, 235)), (m, DARK), (sticker, (0, 220, 245))])
+    det = detect_marker(img)
+    assert det["best"]["polarity"] == "dark" and corner_error(det["best"]["corners_px"], m) < 0.3
+    assert all(c["side_px"] < 200 for c in det["candidates"])
+
+
+def test_white_marker_on_black_card():
+    card = rect_corners(600, 500, 240, 240, -7)
+    m = rect_corners(600, 500, 60, 60, -7)
+    img = render(bg=(225, 228, 228), shapes=[(card, (30, 30, 35)), (m, (240, 240, 240))])
+    det = detect_marker(img)
+    assert det["best"]["polarity"] == "light" and corner_error(det["best"]["corners_px"], m) < 0.3

@@ -36,7 +36,7 @@ export type ApiImage = {
   height: number
   status: 'uploaded' | 'marker_not_found' | 'marker_found' | 'calibrated'
   urls: { file: string; preview: string; original: string }
-  detection: { found: boolean } | null
+  detection: { found: boolean; warnings?: ApiWarning[] } | null
   calibration: ApiCalibration | null
   measurements: ApiMeasurement[]
 }

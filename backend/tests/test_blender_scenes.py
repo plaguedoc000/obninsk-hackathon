@@ -55,7 +55,8 @@ EXPECT: dict[str, dict] = {
     "13_graph_paper": dict(corner=0.015, area=3.0, wand=0.95),
     "14_dark_distractors": dict(corner=0.01, area=3.0, wand=0.95),
     "15_two_squares": dict(corner=0.01, area=3.0, wand=0.95, warn=["MULTIPLE_CANDIDATES"]),
-    "16_white_on_dark": dict(corner=0.015, area=3.0, polarity="light", wand=0.95),
+    # белый эталон на тёмном находится сам, без подсказки «искать светлый»
+    "16_white_on_dark": dict(corner=0.015, area=3.0, wand=0.95),
     "17_small_far": dict(corner=0.02, area=3.0, wand=0.95, warn=["MARKER_SMALL"]),
     "18_highres_8mp": dict(corner=0.01, area=3.0, wand=0.95),
     # синяя ручка лежит поверх угла эталона: по цвету отделяется, закрытый угол достраивается по сторонам
@@ -212,9 +213,19 @@ def test_magic_wand_outline(case):
         assert iou(res["points_px"], s["outline_px"], SCENES[name]["size"]) >= EXPECT[name]["wand"]
 
 
-def test_no_marker_is_reported():
-    """Жёлтая квадратная наклейка 12 мм — не эталон: эталон чёрный, втрое и больше темнее фона."""
+def test_color_square_is_flagged():
+    """Эталона нет, есть жёлтая квадратная наклейка 12 мм. Эталоном может быть любой контрастный квадрат,
+    поэтому наклейка находится, но по цвету — сайт просит проверить, что это эталон, а не наклейка."""
     v = uploaded("20_no_marker")
+    assert v["detection"]["best"]["polarity"] == "color"
+    assert "MARKER_BY_COLOR" in warning_codes(v)
+
+
+def test_no_marker_is_reported():
+    """На пустом листе эталона нет — сайт так и говорит."""
+    img = np.full((1200, 1600, 3), (228, 232, 232), np.uint8)
+    img = np.clip(img + np.random.default_rng(1).normal(0, 2, img.shape), 0, 255).astype(np.uint8)
+    v = upload_bytes("empty.jpg", cv2.imencode(".jpg", img)[1].tobytes())
     assert v["status"] == "marker_not_found"
     assert "MARKER_NOT_FOUND" in warning_codes(v)
 

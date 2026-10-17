@@ -68,7 +68,8 @@ Point = list[float]
 
 
 class DetectRequest(BaseModel):
-    polarity: Literal["dark", "light", "any"] = Field("dark", description="Эталон тёмный на светлом (dark), светлый на тёмном (light) или любой")
+    polarity: Literal["dark", "light", "color", "any"] = Field(
+        "any", description="Эталон тёмный на светлом (dark), светлый на тёмном (light), цветной (color) или любой контрастный (any)")
     marker_size_mm: Optional[float] = Field(None, gt=0, description="Сторона эталона, мм (по умолчанию 10)")
     auto_calibrate: bool = Field(True, description="Сразу откалибровать по лучшему найденному квадрату")
     perspective: Literal["auto", "on", "off"] = "auto"
