@@ -1,5 +1,7 @@
 import { BrowserRouter, Route, Routes } from 'react-router'
 import { Toaster } from '@/components/ui/sonner'
+import { FLIDA_CALLBACK_PATH } from '@/lib/flida'
+import FlidaCallbackPage from '@/pages/FlidaCallbackPage'
 import HomePage from '@/pages/HomePage'
 import NotFoundPage from '@/pages/NotFoundPage'
 
@@ -9,6 +11,7 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route index element={<HomePage />} />
+        <Route path={FLIDA_CALLBACK_PATH} element={<FlidaCallbackPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
       <Toaster theme="dark" position="top-center" />

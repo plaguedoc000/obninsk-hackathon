@@ -43,6 +43,10 @@ export type ApiImage = {
 
 type Upload = { images: ApiImage[]; errors: { filename: string; message: string }[] }
 
+export type AuthUser = { id: string; name: string }
+
+export type AuthState = { user: AuthUser | null; flida_client_id: string | null }
+
 async function send(path: string, init?: RequestInit): Promise<Response> {
   const json = typeof init?.body === 'string'
   let res: Response
@@ -78,6 +82,14 @@ const ids = (list: string[]) => `image_ids=${list.map(encodeURIComponent).join('
 
 export const api = {
   health: () => request<Health>('/health'),
+
+  // Вход через Флида ID: сервер проверяет access_token у Флиды и держит сессию в cookie, см. lib/flida.ts
+  me: () => request<AuthState>('/auth/me'),
+
+  loginFlida: (accessToken: string) =>
+    request<{ user: AuthUser }>('/auth/flida', { method: 'POST', body: JSON.stringify({ access_token: accessToken }) }),
+
+  logout: () => request<{ user: null }>('/auth/logout', { method: 'POST' }),
 
   // Фото одного браузера лежат на сервере в своей группе, см. workspaceId() в photos.ts
   listImages: (group: string) => request<{ images: ApiImage[] }>(`/images?group=${encodeURIComponent(group)}`),

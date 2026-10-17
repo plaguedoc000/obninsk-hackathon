@@ -18,6 +18,7 @@ from . import config, service
 from .contour import autocontour
 from .errors import AppError
 from .imaging import HEIC_SUPPORTED, encode, resize_max
+from .routers import auth
 from .storage import Store
 
 store = Store(config.DATA_DIR)
@@ -37,6 +38,7 @@ app = FastAPI(
 )
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
                    expose_headers=["Content-Disposition", "X-Preview-Scale"])
+app.include_router(auth.router)
 
 
 # ---------------------------------------------------------------- ошибки

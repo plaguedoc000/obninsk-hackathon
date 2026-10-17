@@ -33,7 +33,8 @@ export default function Logo() {
   return (
     <div className="flex min-w-0 items-center gap-3">
       <LogoMark className="h-[34px] w-auto shrink-0" />
-      <h1 className="hidden text-[19px] leading-none font-extrabold tracking-[-.01em] whitespace-nowrap min-[400px]:block sm:text-[21px]">
+      {/* название — когда помещается в одну строку с кнопками шапки (с 470 px) */}
+      <h1 className="hidden text-[19px] leading-none font-extrabold tracking-[-.01em] whitespace-nowrap min-[470px]:block sm:text-[21px]">
         Мера<span className="text-lab-brand">Кадр</span>
       </h1>
     </div>
