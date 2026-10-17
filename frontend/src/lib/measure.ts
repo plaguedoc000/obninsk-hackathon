@@ -9,6 +9,9 @@ const r2 = (v: number) => Math.round(v * 100) / 100
 // Отпечаток точек: по нему видно, для каких координат посчитано число с сервера
 export const pointsSig = (pts: Pt[]) => pts.map((p) => `${r2(p.x)},${r2(p.y)}`).join(';')
 
+// Отпечаток эталона: углы и сторона квадрата в мм — поменяли размер, и масштаб надо пересчитать
+export const markerSig = (marker: Pt[], mm: number) => `${pointsSig(marker)}@${mm}`
+
 export type Scale = {
   ppm: number // пикселей фото в 1 мм
   sidePx: number
@@ -21,9 +24,9 @@ export type Scale = {
 
 export function scaleOf(photo: Photo): Scale | null {
   if (!photo.marker) return null
-  const local = markerQuality(photo.marker)
+  const local = markerQuality(photo.marker, photo.markerMm)
   const s = photo.server
-  if (s && s.sig === pointsSig(photo.marker)) {
+  if (s && s.sig === markerSig(photo.marker, photo.markerMm)) {
     return { ...local, ppm: s.pxPerMm, areaErrorPct: s.uncertaintyPct, warnings: s.warnings, fromServer: true }
   }
   return { ...local, warnings: [], fromServer: false }
@@ -34,13 +37,13 @@ export type AreaValue = { mm2: number; perimeterMm: number; errorPct: number; wa
 export function areaOf(photo: Photo, area: Area): AreaValue | null {
   if (!photo.marker) return null
   const s = area.server
-  if (s && s.sig === `${pointsSig(photo.marker)}|${pointsSig(area.points)}`) {
+  if (s && s.sig === `${markerSig(photo.marker, photo.markerMm)}|${pointsSig(area.points)}`) {
     return { mm2: s.areaMm2, perimeterMm: s.perimeterMm, errorPct: s.uncertaintyPct, warnings: s.warnings, fromServer: true }
   }
   return {
-    mm2: areaMm2(area.points, photo.marker),
-    perimeterMm: perimeterMm(area.points, photo.marker),
-    errorPct: markerQuality(photo.marker).areaErrorPct,
+    mm2: areaMm2(area.points, photo.marker, photo.markerMm),
+    perimeterMm: perimeterMm(area.points, photo.marker, photo.markerMm),
+    errorPct: markerQuality(photo.marker, photo.markerMm).areaErrorPct,
     warnings: [],
     fromServer: false,
   }

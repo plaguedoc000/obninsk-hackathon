@@ -79,7 +79,7 @@ export default function HomePage() {
       // по одному: сервер на каждом фото ищет эталон
       for (const [i, photo] of created.entries()) {
         try {
-          const { images: [image] } = await api.uploadImage(await compressForUpload(images[i]), workspaceId())
+          const { images: [image] } = await api.uploadImage(await compressForUpload(images[i]), workspaceId(), photo.markerMm)
           URL.revokeObjectURL(photo.url)
           // фото удалили, пока оно загружалось
           if (!photosRef.current.some((p) => p.id === photo.id)) {
@@ -109,7 +109,7 @@ export default function HomePage() {
       if (missing) toast.warning(`Эталон не найден на ${missing} из ${ok} фото — укажите его вручную`)
       else if (ok) toast.success(ok === 1 ? 'Эталон найден' : `Эталон найден на всех фото: ${ok}`)
       if (byColor.length)
-        toast.warning(`Эталон найден по цвету: ${byColor.join(', ')}. Проверьте, что это квадрат 1×1 см, а не наклейка или этикетка`)
+        toast.warning(`Эталон найден по цвету: ${byColor.join(', ')}. Проверьте, что это квадрат-эталон, а не наклейка или этикетка`)
     },
     [updatePhoto, sync],
   )
