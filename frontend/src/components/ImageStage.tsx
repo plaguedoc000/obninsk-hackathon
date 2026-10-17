@@ -2,13 +2,15 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type 
 import { Scan, StageFrame } from '@/components/Workspace'
 import { fmt } from '@/lib/format'
 import { clamp, perimeterMm } from '@/lib/geometry'
+import { cn } from '@/lib/utils'
 import type { Photo, Pt, Quad, Segment, Tool } from '@/lib/types'
+import { useMobile } from '@/lib/useMobile'
 
 type Drag =
   | { kind: 'corner'; index: number }
   | { kind: 'marker'; start: Pt; orig: Quad }
   | { kind: 'point'; areaId: string; index: number }
-  | { kind: 'tap'; x: number; y: number; shift: boolean }
+  | { kind: 'tap'; x: number; y: number; shift: boolean; touch: boolean }
   | { kind: 'ruler'; a: Pt }
   | { kind: 'segment'; end: 'a' | 'b' }
 
@@ -29,6 +31,8 @@ type Props = {
   markerDraft: Pt[]
   draft: Pt[]
   selectedId: string | null
+  // «Авто» в режиме «Добавить» (телефон): нажатие по выбранной области тоже уходит палочке, как Shift+щелчок
+  addMode?: boolean
   ruler: Line | null
   onDragStart: () => void
   onMarkerChange: (q: Quad) => void
@@ -41,8 +45,10 @@ type Props = {
   onCloseDraft: () => void
   onWand: (p: Pt, add: boolean) => void
   onSelectArea: (id: string) => void
-  onRuler: (line: Line) => void
+  onRuler: (line: Line | null) => void
   onZoom: (zoom: number) => void
+  // что показать поверх рамки (телефон: плашка площади)
+  overlay?: ReactNode
 }
 
 const RED = '#E01E3C'
@@ -50,11 +56,17 @@ const BLUE = '#5170FF'
 // поля вокруг фото внутри рамки: 24 px по бокам, 30 сверху и снизу
 const PAD_X = 24
 const PAD_Y = 30
+// на телефоне поля почти без отступа — фото на весь экран
+const PAD_MOBILE = 6
 const LENS = 160
 const LENS_ZOOM = 3
 export const MAX_ZOOM = 8
 
 const toPoints = (pts: Pt[]) => pts.map((p) => `${p.x},${p.y}`).join(' ')
+
+// номер ближайшей к p точки: на телефоне ручки крупные и перекрываются — берём ближайшую к пальцу, а не верхнюю
+const nearest = (pts: Pt[], p: Pt) =>
+  pts.reduce((best, q, i) => (Math.hypot(q.x - p.x, q.y - p.y) < Math.hypot(pts[best].x - p.x, pts[best].y - p.y) ? i : best), 0)
 
 // Точки контура не ближе gap друг к другу (с номерами в исходном контуре) — для ручек
 function sparse(points: Pt[], gap: number) {
@@ -79,6 +91,7 @@ export default function ImageStage({
   markerDraft,
   draft,
   selectedId,
+  addMode = false,
   ruler,
   onDragStart,
   onMarkerChange,
@@ -93,6 +106,7 @@ export default function ImageStage({
   onSelectArea,
   onRuler,
   onZoom,
+  overlay,
 }: Props) {
   const { width: W, height: H, marker, segment } = photo
   const frameRef = useRef<HTMLDivElement>(null)
@@ -105,6 +119,9 @@ export default function ImageStage({
   const [dragging, setDragging] = useState(false)
   const [panning, setPanning] = useState(false)
   const [touch, setTouch] = useState(false)
+  const mobile = useMobile()
+  // радиус ручек для пальца (в пикселях экрана): на телефоне зона касания 44 px
+  const hit = mobile ? 22 : 14
 
   useEffect(() => {
     const el = frameRef.current
@@ -116,7 +133,9 @@ export default function ImageStage({
 
   // Масштаб: фото вписано в рамку. Если фото приведены к общему масштабу, у всех одинаково мм на пиксель экрана —
   // берём самый мелкий масштаб, при котором влезает каждое из них
-  const fitOf = (w: number, h: number) => Math.max(0.001, Math.min((size.w - 2 * PAD_X) / w, (size.h - 2 * PAD_Y) / h))
+  const padX = mobile ? PAD_MOBILE : PAD_X
+  const padY = mobile ? PAD_MOBILE : PAD_Y
+  const fitOf = (w: number, h: number) => Math.max(0.001, Math.min((size.w - 2 * padX) / w, (size.h - 2 * padY) / h))
   const base = norm ? Math.min(...norm.list.map((n) => fitOf(n.width, n.height) * n.ppm)) / norm.ppm : fitOf(W, H)
   const s = base * zoom
   // сколько пикселей фото приходится на один пиксель экрана: ручки и линии одного размера на любом фото
@@ -158,6 +177,61 @@ export default function ImageStage({
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
   }, [])
+
+  // Телефон: двумя пальцами — приблизить и сдвинуть фото, при любом инструменте. Второй палец отменяет
+  // начатое первым (точку, линию, перетаскивание), и пока оба не отпущены, пальцы ничего не рисуют.
+  // Обработчики в фазе перехвата: срабатывают раньше, чем инструменты на фото
+  const touches = useRef(new Map<number, Pt>())
+  const pinch = useRef<{ d0: number; z0: number; px: number; py: number } | null>(null)
+  const locked = useRef(false)
+
+  function fingers() {
+    const [a, b] = [...touches.current.values()]
+    const r = frameRef.current!.getBoundingClientRect()
+    return { d: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2 - r.left, my: (a.y + b.y) / 2 - r.top }
+  }
+
+  function onTouchDown(e: ReactPointerEvent) {
+    if (!mobile || e.pointerType !== 'touch') return
+    touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    if (touches.current.size < 2) return
+    e.stopPropagation()
+    if (pinch.current) return
+    const d = drag.current
+    drag.current = null
+    pan.current = null
+    setDragging(false)
+    setPanning(false)
+    setMouse(null)
+    if (d?.kind === 'ruler') onRuler(null)
+    locked.current = true
+    // точка фото между пальцами остаётся между пальцами
+    const v = view.current
+    const { d: dist, mx, my } = fingers()
+    pinch.current = { d0: Math.max(dist, 1), z0: v.zoom, px: v.cx + (mx - v.w / 2) / v.s, py: v.cy + (my - v.h / 2) / v.s }
+  }
+
+  function onTouchMove(e: ReactPointerEvent) {
+    if (!touches.current.has(e.pointerId)) return
+    touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    if (!locked.current) return
+    e.stopPropagation()
+    const p = pinch.current
+    if (!p || touches.current.size < 2) return
+    const v = view.current
+    const { d, mx, my } = fingers()
+    const next = clamp((p.z0 * d) / p.d0, 1, MAX_ZOOM)
+    const s2 = v.base * next
+    setCenter({ x: p.px - (mx - v.w / 2) / s2, y: p.py - (my - v.h / 2) / s2 })
+    if (next !== v.zoom) v.onZoom(next)
+  }
+
+  function onTouchUp(e: ReactPointerEvent) {
+    if (!touches.current.delete(e.pointerId)) return
+    if (touches.current.size < 2) pinch.current = null
+    if (locked.current) e.stopPropagation()
+    if (!touches.current.size) locked.current = false
+  }
 
   function toImage(e: { clientX: number; clientY: number }): Pt {
     const ctm = svgRef.current?.getScreenCTM()
@@ -217,14 +291,18 @@ export default function ImageStage({
     setMouse(p)
     if (tool === 'marker') {
       e.stopPropagation()
-      // нет эталона или он отрезок — щелчки ставят углы нового квадрата
-      if (!marker || segment) onMarkerPoint(p)
+      // нет эталона или он отрезок — щелчки ставят углы нового квадрата.
+      // Пальцем на телефоне угол встаёт, когда палец отпущен: лупа показывает, куда именно
+      if (!marker || segment) {
+        if (mobile && e.pointerType !== 'mouse') start(e, { kind: 'tap', x: e.clientX, y: e.clientY, shift: false, touch: true })
+        else onMarkerPoint(p)
+      }
     } else if (tool === 'ruler' || tool === 'segment') {
       // «Отрезок» рисуется как линейка, а потом спрашивает длину в мм
       onRuler({ a: p, b: p })
       start(e, { kind: 'ruler', a: p })
     } else {
-      start(e, { kind: 'tap', x: e.clientX, y: e.clientY, shift: e.shiftKey })
+      start(e, { kind: 'tap', x: e.clientX, y: e.clientY, shift: e.shiftKey, touch: mobile && e.pointerType !== 'mouse' })
     }
   }
 
@@ -257,10 +335,13 @@ export default function ImageStage({
     drag.current = null
     setDragging(false)
     if (touch) setMouse(null)
-    // щелчок, а не протяжка: ставим точку многоугольника или зовём «волшебную палочку»
-    if (d?.kind === 'tap' && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 8) {
-      if (tool === 'area') onDraftPoint(toImage(e))
-      else if (tool === 'auto') onWand(toImage(e), d.shift)
+    // щелчок, а не протяжка: ставим точку многоугольника или зовём «волшебную палочку».
+    // Пальцем на телефоне можно вести: точка встаёт там, где палец отпущен
+    if (d?.kind === 'tap' && (d.touch || Math.hypot(e.clientX - d.x, e.clientY - d.y) < 8)) {
+      const p = toImage(e)
+      if (tool === 'area') onDraftPoint(p)
+      else if (tool === 'auto') onWand(p, d.shift)
+      else if (tool === 'marker') onMarkerPoint(p)
     }
   }
 
@@ -298,7 +379,7 @@ export default function ImageStage({
               onPointerDown={
                 interactive
                   ? (e) => {
-                      if (e.button > 0 || busy || (tool === 'auto' && e.shiftKey)) return
+                      if (e.button > 0 || busy || (tool === 'auto' && (e.shiftKey || addMode))) return
                       e.stopPropagation()
                       onSelectArea(area.id)
                     }
@@ -353,7 +434,7 @@ export default function ImageStage({
                 <circle
                   cx={p.x}
                   cy={p.y}
-                  r={14 * u}
+                  r={hit * u}
                   fill="transparent"
                   className="cursor-pointer"
                   onPointerDown={(e) => {
@@ -374,7 +455,8 @@ export default function ImageStage({
             u={u}
             glow={glow}
             handles={interactive && tool === 'segment'}
-            onGrab={(end, e) => grab(e, { kind: 'segment', end })}
+            hit={hit}
+            onGrab={(end, e) => grab(e, { kind: 'segment', end: mobile ? (nearest([segment.a, segment.b], toImage(e)) ? 'b' : 'a') : end })}
           />
         )}
         {marker && !segment && (
@@ -396,10 +478,10 @@ export default function ImageStage({
               <circle
                 cx={c.x}
                 cy={c.y}
-                r={14 * u}
+                r={hit * u}
                 fill="transparent"
                 className="cursor-grab"
-                onPointerDown={(e) => grab(e, { kind: 'corner', index: i })}
+                onPointerDown={(e) => grab(e, { kind: 'corner', index: mobile ? nearest(marker, toImage(e)) : i })}
               />
             )}
           </g>
@@ -411,8 +493,9 @@ export default function ImageStage({
           !draft.length &&
           photo.areas
             .filter((area) => area.id === selectedId)
-            .map((area) =>
-              sparse(area.points, 14 * u).map(({ p, i }) => (
+            .map((area) => {
+              const handles = sparse(area.points, (mobile ? 24 : 14) * u)
+              return handles.map(({ p, i }) => (
                 <g key={`${area.id}-${i}`}>
                   <rect
                     x={p.x - 6 * u}
@@ -428,14 +511,16 @@ export default function ImageStage({
                   <circle
                     cx={p.x}
                     cy={p.y}
-                    r={10 * u}
+                    r={(mobile ? 22 : 10) * u}
                     fill="transparent"
                     className="cursor-move"
-                    onPointerDown={(e) => grab(e, { kind: 'point', areaId: area.id, index: i })}
+                    onPointerDown={(e) =>
+                      grab(e, { kind: 'point', areaId: area.id, index: mobile ? handles[nearest(handles.map((h) => h.p), toImage(e))].i : i })
+                    }
                   />
                 </g>
-              )),
-            )}
+              ))
+            })}
 
         {interactive && ruler && (
           <g pointerEvents="none">
@@ -482,7 +567,11 @@ export default function ImageStage({
     <StageFrame ref={frameRef}>
       <div
         className="absolute inset-0"
-        style={{ cursor }}
+        style={{ cursor, touchAction: mobile ? 'none' : undefined }}
+        onPointerDownCapture={onTouchDown}
+        onPointerMoveCapture={onTouchMove}
+        onPointerUpCapture={onTouchUp}
+        onPointerCancelCapture={onTouchUp}
         onPointerDown={onPanDown}
         onPointerMove={onPanMove}
         onPointerUp={onPanUp}
@@ -491,12 +580,17 @@ export default function ImageStage({
       >
         {ready && (
           <div className="absolute shadow-[0_20px_60px_rgba(0,0,0,.6)]" style={{ left, top, width: W * s, height: H * s }}>
-            <img src={photo.url} alt={photo.name} draggable={false} className="absolute inset-0 size-full bg-lab-paper select-none" />
+            <img
+              src={photo.url}
+              alt={photo.name}
+              draggable={false}
+              className={cn('absolute inset-0 size-full bg-lab-paper select-none', mobile && '[-webkit-touch-callout:none]')}
+            />
             <svg
               ref={svgRef}
               viewBox={`0 0 ${W} ${H}`}
               className="absolute inset-0 size-full overflow-visible"
-              style={{ cursor, touchAction: tool ? 'none' : 'pan-y pinch-zoom' }}
+              style={{ cursor, touchAction: mobile || tool ? 'none' : 'pan-y pinch-zoom' }}
               onPointerDown={onDown}
               onPointerMove={onMove}
               onPointerUp={onUp}
@@ -553,19 +647,21 @@ export default function ImageStage({
         )
       )}
 
-      {showLens && mouse && <Lens photo={photo} point={mouse} s={s} left={left} top={top} size={size} shapes={shapes} />}
+      {showLens && mouse && <Lens photo={photo} point={mouse} s={s} left={left} top={top} size={size} shapes={shapes} finger={mobile && touch} />}
 
       {ready && zoom > 1 && <Minimap photo={photo} view={{ x0: cx - hx, x1: cx + hx, y0: cy - hy, y1: cy + hy }} onCenter={setCenter} />}
+      {overlay}
     </StageFrame>
   )
 }
 
 // Эталон-отрезок на фото. handles — концы можно тянуть (в инструменте «Эталон»)
-function SegmentShape({ seg, u, glow, handles, onGrab }: {
+function SegmentShape({ seg, u, glow, handles, hit, onGrab }: {
   seg: Segment
   u: number
   glow: CSSProperties
   handles: boolean
+  hit: number
   onGrab: (end: 'a' | 'b', e: ReactPointerEvent) => void
 }) {
   const len = Math.hypot(seg.b.x - seg.a.x, seg.b.y - seg.a.y) || 1
@@ -582,7 +678,7 @@ function SegmentShape({ seg, u, glow, handles, onGrab }: {
             <line x1={p.x - nx} y1={p.y - ny} x2={p.x + nx} y2={p.y + ny} stroke={BLUE} strokeWidth={2} vectorEffect="non-scaling-stroke" pointerEvents="none" />
             <circle cx={p.x} cy={p.y} r={4 * u} fill={BLUE} stroke="#fff" strokeWidth={1.5} vectorEffect="non-scaling-stroke" pointerEvents="none" />
             {handles && (
-              <circle cx={p.x} cy={p.y} r={14 * u} fill="transparent" className="cursor-grab" onPointerDown={(e) => onGrab(end, e)} />
+              <circle cx={p.x} cy={p.y} r={hit * u} fill="transparent" className="cursor-grab" onPointerDown={(e) => onGrab(end, e)} />
             )}
           </g>
         )
@@ -646,15 +742,28 @@ type LensProps = {
   top: number
   size: { w: number; h: number }
   shapes: (u: number, interactive: boolean) => ReactNode
+  // касание пальцем: лупа над пальцем, чтобы он её не закрывал
+  finger?: boolean
 }
 
 // Лупа ×3 рядом с курсором: видно, куда точно встаёт уголок или точка
-function Lens({ photo, point, s, left, top, size, shapes }: LensProps) {
+function Lens({ photo, point, s, left, top, size, shapes, finger }: LensProps) {
   const L = s * LENS_ZOOM
   const sx = left + point.x * s
   const sy = top + point.y * s
-  const lensL = sx + 24 + LENS > size.w ? sx - LENS - 24 : sx + 24
-  const lensT = sy - LENS - 24 < 0 ? sy + 24 : sy - LENS - 24
+  let lensL = sx + 24 + LENS > size.w ? sx - LENS - 24 : sx + 24
+  let lensT = sy - LENS - 24 < 0 ? sy + 24 : sy - LENS - 24
+  if (finger) {
+    // над пальцем по центру; у верхнего края — сбоку, где больше места
+    const above = sy - LENS - 48
+    if (above >= 0) {
+      lensT = above
+      lensL = clamp(sx - LENS / 2, 4, size.w - LENS - 4)
+    } else {
+      lensT = clamp(sy - LENS / 2, 4, size.h - LENS - 4)
+      lensL = sx > size.w / 2 ? sx - LENS - 48 : sx + 48
+    }
+  }
   return (
     <div
       className="pointer-events-none absolute z-10 size-40 overflow-hidden rounded-full border-2 border-lab-blue bg-black shadow-[0_0_0_4px_rgba(4,5,15,.85),0_0_30px_rgba(81,112,255,.6)]"

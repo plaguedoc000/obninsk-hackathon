@@ -185,7 +185,10 @@ export default function CompareView({ photos }: Props) {
               </div>
             ) : (
               <div className="flex h-full items-center justify-center p-6 text-center text-[15px] leading-normal text-lab-text/62">
-                Отметьте фото справа — они появятся здесь в одном масштабе. Для сравнения нужно два фото или больше.
+                <span>
+                  <span className="lg:hidden">Отметьте фото в ленте внизу</span>
+                  <span className="hidden lg:inline">Отметьте фото справа</span> — они появятся здесь в одном масштабе. Для сравнения нужно два фото или больше.
+                </span>
               </div>
             )}
           </div>

@@ -1,4 +1,5 @@
-import { Check, FolderOpen, Loader2, X } from 'lucide-react'
+import { useEffect, useRef } from 'react'
+import { Check, FolderOpen, Loader2, Plus, X } from 'lucide-react'
 import { scaleOf } from '@/lib/measure'
 import type { Photo } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -205,6 +206,119 @@ export default function PhotoList({ photos, activeId, picking, picked, normIds, 
           </div>
         )}
       </div>
+    </>
+  )
+}
+
+// Телефон: лента миниатюр под фото, листается пальцем. «+» — снять или выбрать фото.
+// В «Масштабировании» нажатие отмечает фото (номер — порядок выбора), а под лентой — «Привести» и «Отмена»
+export function PhotoStrip({ photos, activeId, picking, picked, normIds, onOpen, onToggle, onRemove, onAdd, onSelectAll, onApply, onReset, onCancel }: Props) {
+  const row = useRef<HTMLDivElement>(null)
+  const pickable = photos.filter((p) => p.marker && p.status === 'ready')
+  const allPicked = pickable.length > 0 && pickable.every((p) => picked.includes(p.id))
+
+  // открытое фото всегда видно в ленте
+  useEffect(() => {
+    row.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' })
+  }, [activeId])
+
+  return (
+    <>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onAdd}
+          aria-label="Добавить фото"
+          className="flex size-14 shrink-0 touch-manipulation items-center justify-center border border-dashed border-lab-sky/50 text-lab-text/80 [-webkit-tap-highlight-color:transparent]"
+        >
+          <Plus className="size-6" />
+        </button>
+        <div ref={row} className="flex min-w-0 flex-1 gap-2 overflow-x-auto overscroll-x-contain py-0.5 [scrollbar-width:none]">
+          {photos.map((photo, index) => {
+            const order = picked.indexOf(photo.id)
+            const active = photo.id === activeId
+            const outline = picking
+              ? order >= 0
+                ? '2px solid #5170FF'
+                : '1px solid rgba(100,149,237,.3)'
+              : active
+                ? '2px solid #E01E3C'
+                : '1px solid rgba(100,149,237,.3)'
+            return (
+              <div key={photo.id} data-active={active && !picking} className="relative size-14 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => (picking ? onToggle(photo) : onOpen(photo.id))}
+                  aria-pressed={picking ? order >= 0 : active}
+                  aria-label={`${picking ? 'Отметить' : 'Открыть'} фото ${index + 1}: ${photo.name}`}
+                  className="relative block size-full touch-manipulation overflow-hidden [-webkit-tap-highlight-color:transparent]"
+                  style={{ outline, outlineOffset: -1, opacity: picking && !photo.marker ? 0.4 : 1 }}
+                >
+                  <img src={photo.url} alt="" draggable={false} className="size-full bg-lab-paper object-cover select-none" />
+                  {photo.status === 'loading' && (
+                    <span className="absolute inset-0 flex items-center justify-center bg-lab-bg/55">
+                      <Loader2 className="size-4 animate-spin text-lab-text" />
+                    </span>
+                  )}
+                  {picking && order >= 0 && (
+                    <span className="absolute top-1 right-1 flex h-5 min-w-5 items-center justify-center bg-lab-blue px-1 font-mono text-[11px] font-semibold text-white">
+                      {order + 1}
+                    </span>
+                  )}
+                </button>
+                {/* удалить можно открытое фото; после удаления есть «Вернуть» */}
+                {active && !picking && (
+                  <button
+                    type="button"
+                    onClick={() => onRemove(photo.id)}
+                    aria-label={`Удалить фото ${index + 1}`}
+                    className="absolute top-0 right-0 flex size-7 touch-manipulation items-start justify-end p-0.5"
+                  >
+                    <span className="flex size-5 items-center justify-center border border-lab-sky/40 bg-lab-bg/85 text-lab-text">
+                      <X className="size-3" />
+                    </span>
+                  </button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {picking && (
+        <div className="flex items-center gap-1.5 font-mono text-[11px] font-semibold tracking-[.06em]">
+          <button
+            type="button"
+            role="checkbox"
+            aria-checked={allPicked}
+            onClick={onSelectAll}
+            disabled={!pickable.length}
+            className="flex h-10 items-center gap-1.5 px-1 text-lab-text/85 disabled:opacity-40"
+          >
+            <span className={cn('flex size-4 shrink-0 items-center justify-center border', allPicked ? 'border-lab-blue bg-lab-blue text-white' : 'border-lab-sky/60')}>
+              {allPicked && <Check className="size-3" strokeWidth={3} />}
+            </span>
+            ВСЕ
+          </button>
+          <span className="mr-auto text-lab-text/70">выбрано {picked.length}</span>
+          {normIds && (
+            <button type="button" onClick={onReset} className="flex h-10 items-center border border-lab-red/60 px-2.5 text-[#FFB3BF]">
+              СБРОС
+            </button>
+          )}
+          <button type="button" onClick={onCancel} className="flex h-10 items-center px-2 text-lab-text/60">
+            ОТМЕНА
+          </button>
+          <button
+            type="button"
+            onClick={onApply}
+            disabled={picked.length < 2}
+            className="flex h-10 items-center bg-lab-blue px-3 text-white shadow-[0_0_16px_rgba(81,112,255,.45)] disabled:opacity-35"
+          >
+            ПРИВЕСТИ →
+          </button>
+        </div>
+      )}
     </>
   )
 }

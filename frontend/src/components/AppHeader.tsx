@@ -11,7 +11,7 @@ type Props = {
 }
 
 const SAVE_BUTTON =
-  'flex h-9 items-center border border-lab-sky/40 px-4 whitespace-nowrap transition-colors outline-none hover:bg-lab-blue/15 focus-visible:ring-2 focus-visible:ring-lab-blue focus-visible:ring-inset'
+  'flex h-10 items-center border border-lab-sky/40 px-3 whitespace-nowrap lg:h-9 lg:px-4 transition-colors outline-none hover:bg-lab-blue/15 focus-visible:ring-2 focus-visible:ring-lab-blue focus-visible:ring-inset'
 
 // Шапка: логотип и две кнопки — «Сохранить» и «Масштабирование».
 // «Сохранить» раскрывается в две: «Сохранить CSV» (таблица) и «Сохранить файлы» (фото в общем масштабе)
@@ -38,7 +38,7 @@ export default function AppHeader({ picking, normalized, onScale, onSaveCsv, onS
   }
 
   return (
-    <header className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2.5 border-b border-lab-sky/20 px-4 py-3 lg:h-16 lg:px-7 lg:py-0">
+    <header className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2.5 border-b border-lab-sky/20 px-3 py-2 lg:h-16 lg:gap-x-4 lg:px-7 lg:py-0">
       <Logo />
 
       <nav className="flex gap-2 font-mono text-xs font-medium tracking-[.08em]">
@@ -50,7 +50,8 @@ export default function AppHeader({ picking, normalized, onScale, onSaveCsv, onS
           </Unfold>
           <Unfold shown={open} delay={40}>
             <button type="button" onClick={() => choose(onSaveCsv)} title="Таблица измерений для Excel" className={SAVE_BUTTON}>
-              СОХРАНИТЬ CSV
+              <span className="lg:hidden">CSV</span>
+              <span className="hidden lg:inline">СОХРАНИТЬ CSV</span>
             </button>
           </Unfold>
           <Unfold shown={open} delay={110} gap>
@@ -60,7 +61,8 @@ export default function AppHeader({ picking, normalized, onScale, onSaveCsv, onS
               title="Фото в общем масштабе с контурами эталона и областей и подписью: имя, площадь, дата"
               className={cn(SAVE_BUTTON, 'border-lab-red/70 hover:bg-lab-red/15')}
             >
-              СОХРАНИТЬ ФАЙЛЫ
+              <span className="lg:hidden">ФАЙЛЫ</span>
+              <span className="hidden lg:inline">СОХРАНИТЬ ФАЙЛЫ</span>
             </button>
           </Unfold>
         </div>
@@ -70,7 +72,7 @@ export default function AppHeader({ picking, normalized, onScale, onSaveCsv, onS
           aria-pressed={picking}
           title="Масштабирование: выберите фото и приведите их к одному масштабу по эталону (C)"
           className={cn(
-            'flex h-9 items-center gap-2 border border-lab-blue px-4 shadow-[0_0_16px_rgba(81,112,255,.3)] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-white',
+            'flex h-10 items-center gap-2 border border-lab-blue px-3 shadow-[0_0_16px_rgba(81,112,255,.3)] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-white lg:h-9 lg:px-4',
             picking || normalized ? 'bg-lab-blue' : 'bg-lab-blue/12 hover:bg-lab-blue/25',
           )}
         >
@@ -78,7 +80,9 @@ export default function AppHeader({ picking, normalized, onScale, onSaveCsv, onS
             className="size-3 shrink-0 rounded-full border-2 border-lab-sky"
             style={{ background: 'linear-gradient(90deg,#5170FF 50%,transparent 50%)' }}
           />
-          {normalized ? 'МАСШТАБИРОВАНИЕ ✓' : 'МАСШТАБИРОВАНИЕ'}
+          {/* на телефоне подпись короче, чтобы шапка уместилась в одну строку */}
+          <span className="lg:hidden">{normalized ? 'МАСШТАБ ✓' : 'МАСШТАБ'}</span>
+          <span className="hidden lg:inline">{normalized ? 'МАСШТАБИРОВАНИЕ ✓' : 'МАСШТАБИРОВАНИЕ'}</span>
         </button>
       </nav>
     </header>
