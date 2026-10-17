@@ -47,6 +47,7 @@ FAR_FROM_MARKER_SIDES = _env_float("ONESCALE_FAR_SIDES", 12.0)       # объе�
 # По нему восстанавливается наклон камеры над столом (pose.py)
 DEFAULT_FOCAL35_MM = _env_float("ONESCALE_DEFAULT_FOCAL35_MM", 26.0)
 POSE_STRONG_TILT_DEG = _env_float("ONESCALE_POSE_STRONG_TILT_DEG", 20.0)  # с какого наклона предупреждать
+SHEET_STRONG_SQUASH = 0.7  # эталон на фото сжат сильнее (короткая сторона < 0,7 длинной) — наклон больше ~45°
 PERSPECTIVE_WARN_PCT = _env_float("ONESCALE_PERSPECTIVE_WARN_PCT", 4.0)   # погрешность перспективы, с которой предупреждать
 
 # Поиск эталона: максимальная сторона уменьшенной копии

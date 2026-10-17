@@ -137,16 +137,30 @@ def _lin(v: float) -> float:
     return float(LINEAR[int(np.clip(round(v), 0, 255))])
 
 
-def _find_candidates(gray_small: np.ndarray, dark: bool) -> list[dict]:
+COLORFUL = 30  # разница каналов (из 255), с которой тёмное пятно уже цветное: синяя ручка, а не чёрный тонер
+
+
+def _find_candidates(gray_small: np.ndarray, dark: bool, chroma_small: np.ndarray | None = None) -> list[dict]:
     h, w = gray_small.shape
     g = gray_small if dark else 255 - gray_small
-    blur = cv2.GaussianBlur(g, (5, 5), 0)
-    masks = []
-    _, otsu = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-    masks.append(otsu)
     m = min(h, w)
-    for bs, cst in ((_odd(max(15, m // 8)), 8), (_odd(max(31, m // 3)), 8)):
-        masks.append(cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, bs, cst))
+    srcs = [cv2.GaussianBlur(g, (5, 5), 0)]
+    if dark and chroma_small is not None:
+        # тёмный цветной предмет (ручка, маркер), касающийся эталона, сливается с ним в одно пятно.
+        # Эталон чёрный и бесцветный: если закрасить цветное тёмное цветом фона, пятна разделяются,
+        # а закрытый угол эталона потом достраивается по сторонам
+        thr, _ = cv2.threshold(srcs[0], 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        colorful = (chroma_small > COLORFUL) & (g < thr)
+        if colorful.mean() > 0.0005:
+            colorful = cv2.dilate(colorful.astype(np.uint8), np.ones((3, 3), np.uint8)) > 0  # и размытая кромка
+            bg = np.uint8(np.median(g[g >= thr])) if (g >= thr).any() else np.uint8(255)
+            srcs.append(cv2.GaussianBlur(np.where(colorful, bg, g), (5, 5), 0))
+    masks = []
+    for blur in srcs:
+        _, otsu = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        masks.append(otsu)
+        for bs, cst in ((_odd(max(15, m // 8)), 8), (_odd(max(31, m // 3)), 8)):
+            masks.append(cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, bs, cst))
 
     min_area = max(80.0, 0.00003 * h * w)
     max_area = 0.2 * h * w
@@ -169,10 +183,11 @@ def _find_candidates(gray_small: np.ndarray, dark: bool) -> list[dict]:
                 continue
             sides = quad_sides(q)
             ratio = sides.min() / sides.max()
-            if ratio < 0.55:
-                continue
             ang_dev = float(np.max(np.abs(quad_angles(q) - 90)))
-            if ang_dev > 35:
+            # сильно сжатый четырёхугольник может быть эталоном при наклоне камеры 50–65° — такой оставляем
+            # про запас: в detect_marker он пройдёт, только если на виде сверху по листу окажется квадратом
+            squashed = ratio < 0.55 or ang_dev > 35
+            if ratio < 0.3 or ang_dev > 55:
                 continue
             side = math.sqrt(qa)
             mi, si, mo, so = _region_stats(g, q, side)
@@ -195,7 +210,7 @@ def _find_candidates(gray_small: np.ndarray, dark: bool) -> list[dict]:
                 * (1 - 0.5 * min(so / max(contrast, 1e-6), 1.0))
             )
             out.append({"quad": q, "score": float(score) * (0.9 if restored else 1.0), "side": side,
-                        "contrast": float(contrast), "restored": restored})
+                        "contrast": float(contrast), "restored": restored, "squashed": squashed})
     # убираем дубли (один и тот же квадрат, найденный разными порогами)
     out.sort(key=lambda d: -d["score"])
     kept: list[dict] = []
@@ -251,6 +266,11 @@ def _levels(g: np.ndarray, quad: np.ndarray, side: float) -> tuple[float, float]
     return float(np.median(inner)), float(np.median(ring))
 
 
+CLEAN_DARK = 0.1  # насколько (доля перепада) сторона эталона у края может быть светлее самой тёмной
+CLEAN_BG = 0.15  # и насколько фон у края может отличаться от обычного для этой стороны
+CLEAN_MIN = 0.2  # чистых профилей должно остаться хотя бы столько, иначе берём все
+
+
 def refine_corners(gray_full: np.ndarray, quad: np.ndarray, dark: bool = True) -> tuple[np.ndarray, float, bool]:
     """Уточнение углов до долей пикселя. Возвращает (углы, оценка ошибки в пикс., удалось ли)."""
     g = LINEAR[gray_full] if gray_full.dtype == np.uint8 else gray_full.astype(np.float32)
@@ -286,8 +306,19 @@ def refine_corners(gray_full: np.ndarray, quad: np.ndarray, dark: bool = True) -
         prof = _bilinear(gs, xs, ys)  # (k, m): тёмное внутри -> светлое снаружи
         # фон у каждой стороны свой (свет сбоку, тень): медиана полосы 0,2–0,5 стороны эталона снаружи
         far = np.linspace(0.2, 0.5, 7) * side
-        bg = float(np.median(_bilinear(g, base[:, 0:1] + far[None, :] * n[0], base[:, 1:2] + far[None, :] * n[1])))
+        band = _bilinear(g, base[:, 0:1] + far[None, :] * n[0], base[:, 1:2] + far[None, :] * n[1]).ravel()
+        band = band[band > (mi + mo) / 2]  # тёмный предмет рядом (ручка, тень) — не фон
+        bg = float(np.median(band)) if band.size >= 0.2 * len(base) * len(far) else mo
         side_thr = (mi + bg) / 2.0 if bg - mi >= 6 else thr
+        # профиль годится, только если по обе стороны края — ровный эталон и ровный фон. Где у края блик
+        # на эталоне, ручка, тень или линия сетки, точка края сместится — такие профили не берём
+        inner, outer = prof[:, offs <= -0.5 * r], prof[:, offs >= 0.3 * r]
+        lo_ref = float(np.percentile(np.median(inner, axis=1), 10))
+        span = bg - lo_ref
+        clean = ((inner.max(axis=1) - lo_ref < CLEAN_DARK * span)
+                 & (outer.max(axis=1) - bg < CLEAN_BG * span) & (bg - outer.min(axis=1) < CLEAN_BG * span))
+        if span > 6 and clean.sum() >= max(5, CLEAN_MIN * len(prof)):
+            prof, base = prof[clean], base[clean]
         pts = []
         for row, b in zip(prof, base):
             s = row - side_thr
@@ -326,6 +357,27 @@ def refine_corners(gray_full: np.ndarray, quad: np.ndarray, dark: bool = True) -
     return new, sigma, True
 
 
+def _squares_on_sheet(gray: np.ndarray, cands: list[dict], scale: float) -> list[dict]:
+    """Сжатые кандидаты, которые на виде сверху по листу (plane.sheet_views) — квадраты.
+    Так находится эталон, снятый под 50–65°, и не находятся прямоугольные наклейки."""
+    from .geometry import apply_transform
+    from .plane import sheet_views
+
+    views = sheet_views(gray)
+    out = []
+    for c in cands:
+        q = c["quad"] / scale
+        for contour, H in views:
+            if cv2.pointPolygonTest(contour.astype(np.float32).reshape(-1, 1, 2), tuple(map(float, q.mean(axis=0))), False) < 0:
+                continue
+            top = order_corners(apply_transform(H, q))
+            sides = quad_sides(top)
+            if sides.min() / sides.max() >= 0.85 and float(np.max(np.abs(quad_angles(top) - 90))) <= 10:
+                out.append(c)
+                break
+    return out
+
+
 def to_gray(bgr: np.ndarray) -> np.ndarray:
     return bgr if bgr.ndim == 2 else cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
 
@@ -338,14 +390,22 @@ def detect_marker(bgr: np.ndarray, polarity: str = "dark", max_candidates: int |
     H, W = gray.shape
     scale = min(1.0, config.DETECT_MAX_SIDE / max(H, W))
     small = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA) if scale < 1 else gray
+    chroma = None
+    if bgr.ndim == 3:
+        col = cv2.resize(bgr, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA) if scale < 1 else bgr
+        chroma = cv2.subtract(col.max(axis=2), col.min(axis=2))
 
     cands = []
     pols = {"dark": [True], "light": [False], "any": [True, False]}.get(polarity, [True])
     for dark in pols:
-        for c in _find_candidates(small, dark):
+        for c in _find_candidates(small, dark, chroma):
             c["dark"] = dark
             cands.append(c)
     cands.sort(key=lambda d: -d["score"])
+    squashed = [c for c in cands if c["squashed"]]
+    cands = [c for c in cands if not c["squashed"]]
+    if not cands and squashed:
+        cands = _squares_on_sheet(gray, squashed, scale)
     cands = cands[:max_candidates]
 
     results = []

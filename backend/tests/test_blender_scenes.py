@@ -30,7 +30,6 @@ client = TestClient(app)
 #   corner — макс. ошибка угла эталона, в долях стороны эталона (0,01 ≈ 0,7 пикс. при эталоне 70 пикс.);
 #   area — макс. ошибка площади образца по точному контуру, %;
 #   warn — предупреждения, которые обязаны появиться;
-#   found=False — эталон честно не находится (сайт должен об этом сказать);
 #   polarity — искать светлый эталон («light»);
 #   wand — минимальное совпадение (IoU) обводки «волшебной палочки» с настоящим контуром;
 #   issues — известные слабости (тест помечен xfail, см. cases()).
@@ -38,15 +37,14 @@ EXPECT: dict[str, dict] = {
     "01_top_baseline": dict(corner=0.01, area=2.0, wand=0.95),
     "02_tilt_25": dict(corner=0.015, area=3.0, wand=0.95),
     "03_tilt_45": dict(corner=0.015, area=3.0, wand=0.95),
-    # эталон под 60° сжат вдвое — его не отличить от прямоугольника; сайт честно говорит, что не нашёл
-    "04_tilt_60": dict(found=False),
+    # эталон под 60° сжат на фото вдвое: сам по себе он не квадрат, но на виде сверху по листу — квадрат
+    "04_tilt_60": dict(corner=0.02, area=3.0, wand=0.9, warn=["STRONG_TILT"]),
     "05_hard_shadow": dict(corner=0.01, area=3.0, wand=0.95),
     # эталон на 0,1 мм выше бумаги: низкий боковой свет даёт от этой ступеньки тень в 1,5 пикс. с одной стороны
     "06_side_gradient": dict(corner=0.025, area=3.0, wand=0.95),
-    # угол глянцевого эталона засвечен бликом и достроен по сторонам — точность угла ниже
-    "07_glare": dict(corner=0.04, area=3.0, wand=0.95, warn=["STRONG_TILT", "MARKER_CORNER_RESTORED"], issues={
-        "area": "Угол эталона съеден бликом и достроен (±1,7 пикс.), а при наклоне 28° это даёт +5% площади. "
-                "Погрешность сайт показывает честно, с предупреждением о наклоне."}),
+    # угол глянцевого эталона засвечен бликом и достроен по сторонам — точность угла ниже;
+    # наклон 28° уточняют три видимые стороны листа
+    "07_glare": dict(corner=0.025, area=3.0, wand=0.95, warn=["STRONG_TILT", "MARKER_CORNER_RESTORED"]),
     "08_flash": dict(corner=0.01, area=3.0, wand=0.95),
     "09_low_light": dict(corner=0.025, area=3.0, wand=0.95, warn=["MULTIPLE_CANDIDATES"]),
     "10_dof": dict(corner=0.02, area=3.0, wand=0.95),
@@ -61,8 +59,8 @@ EXPECT: dict[str, dict] = {
     "16_white_on_dark": dict(corner=0.015, area=3.0, polarity="light", wand=0.95),
     "17_small_far": dict(corner=0.02, area=3.0, wand=0.95, warn=["MARKER_SMALL"]),
     "18_highres_8mp": dict(corner=0.01, area=3.0, wand=0.95),
-    # ручка лежит поверх угла эталона и сливается с ним в одно пятно; сайт честно говорит, что не нашёл
-    "19_occluded": dict(found=False),
+    # синяя ручка лежит поверх угла эталона: по цвету отделяется, закрытый угол достраивается по сторонам
+    "19_occluded": dict(corner=0.02, area=3.0, wand=0.95, warn=["MARKER_CORNER_RESTORED"]),
     "21_low_contrast": dict(corner=0.01, area=3.0, wand=0.95),
     "22_series_a": dict(corner=0.01, area=2.0, wand=0.95),
     "22_series_b": dict(corner=0.015, area=3.0, wand=0.95, warn=["STRONG_TILT"]),
@@ -145,7 +143,7 @@ def calibrated(name: str) -> dict:
     return detect(v, pol) if pol else v
 
 
-MARKED = [n for n in EXPECT if SCENES[n]["marker_px"] and EXPECT[n].get("found", True)]
+MARKED = [n for n in EXPECT if SCENES[n]["marker_px"]]
 SAMPLES = [(n, i) for n in MARKED for i in range(len(SCENES[n]["samples"]))]
 
 
@@ -213,13 +211,6 @@ def test_magic_wand_outline(case):
         assert res["warnings"] or iou(res["points_px"], s["outline_px"], SCENES[name]["size"]) >= EXPECT[name]["wand"]
     else:
         assert iou(res["points_px"], s["outline_px"], SCENES[name]["size"]) >= EXPECT[name]["wand"]
-
-
-@pytest.mark.parametrize("name", [n for n in EXPECT if EXPECT[n].get("found") is False])
-def test_unfindable_marker_is_reported(name):
-    """Наклон 60° или ручка поверх угла: эталон не находится — сайт должен прямо об этом сказать."""
-    v = uploaded(name)
-    assert v["status"] == "marker_not_found" and "MARKER_NOT_FOUND" in warning_codes(v)
 
 
 def test_no_marker_is_reported():

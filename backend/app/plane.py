@@ -26,6 +26,7 @@ WORK_SIDE = 1000  # сторона уменьшенной копии для по
 MIN_AREA = 0.06  # лист занимает хотя бы 6% кадра
 MAX_ANGLE_DEV = 2.5  # после исправления углы листа — прямые с точностью до 2,5°
 MAX_LINE_RMS = 1.2  # края листа прямые: разброс точек края от прямой не больше 1,2 пикс.
+OPPOSITE_MAX_DEG = 120  # противоположные стороны листа на фото сходятся: при наклоне 60° — почти под прямым углом
 
 
 def _candidates(gray_small: np.ndarray) -> list[np.ndarray]:
@@ -233,7 +234,8 @@ PAPER_MM = (210.0, 297.0, 215.9, 279.4)
 
 def find_sheet(gray: np.ndarray, marker_px, marker_mm: float) -> dict | None:
     """Лист под эталоном: прямые его сторон, гомография «пиксели -> мм» и проверки. None — листа нет.
-    Углы листа могут быть за кадром: нужны прямые сторон, а не углы."""
+    Углы листа могут быть за кадром: нужны прямые сторон, а не углы. Если сторон для перспективы
+    не хватает (видно две) — source="edges" и только прямые сторон."""
     from .detection import LINEAR
 
     marker = order_corners(np.asarray(marker_px, np.float64))
@@ -244,6 +246,7 @@ def find_sheet(gray: np.ndarray, marker_px, marker_mm: float) -> dict | None:
     lin = LINEAR[gray] if gray.dtype == np.uint8 else gray.astype(np.float32)
     lin = cv2.GaussianBlur(lin, (0, 0), 1.0)
     hs, ws = small.shape
+    edges = []
     for mask in _candidates(small):
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         for c in contours:
@@ -253,24 +256,83 @@ def find_sheet(gray: np.ndarray, marker_px, marker_mm: float) -> dict | None:
             res = _solve(fits, marker, marker_mm, c, s)
             if res:
                 return res
+            if 2 <= len(fits) <= 4 and len(fits) > len(edges):
+                edges = fits
+    if edges:
+        # лист виден не целиком (или это не A4): его стороны всё равно помогают — уточняют позу эталона (pose.py)
+        return {"source": "edges", "sides": len(edges), "lines": [[float(v) for v in f[0]] for f in edges],
+                "edge_rms_px": round(max(f[1] for f in edges), 3)}
     return None
+
+
+def _around(fits, contour, s) -> list:
+    """Стороны по кругу вокруг листа."""
+    cx, cy = contour.reshape(-1, 2).mean(axis=0) / s
+
+    def angle(f):
+        vx, vy, x0, y0 = f[0]
+        t = (cx - x0) * vx + (cy - y0) * vy
+        return math.atan2(y0 + t * vy - cy, x0 + t * vx - cx)
+    return sorted(fits, key=angle)
+
+
+def _top_view(v1: np.ndarray, v2: np.ndarray, w: int, h: int) -> np.ndarray:
+    """Гомография «фото -> вид строго сверху» (с точностью до масштаба и поворота) по двум точкам схода
+    сторон прямоугольного листа. Фокусное — из того, что направления на точки схода перпендикулярны;
+    если точки схода слишком далеко (снято почти сверху), берём фокусное как у телефона."""
+    from . import config
+
+    c = np.array([(w - 1) / 2, (h - 1) / 2])
+    f = f0 = config.DEFAULT_FOCAL35_MM / 43.27 * math.hypot(w, h)
+    if abs(v1[2]) > 1e-12 and abs(v2[2]) > 1e-12:
+        f2 = -float(np.dot(v1[:2] / v1[2] - c, v2[:2] / v2[2] - c))
+        if f2 > 0 and 0.5 < math.sqrt(f2) / f0 < 2:
+            f = math.sqrt(f2)
+    K = np.array([[f, 0, c[0]], [0, f, c[1]], [0, 0, 1.0]])
+    n = K.T @ np.cross(v1, v2)  # нормаль стола в координатах камеры
+    n = n / np.linalg.norm(n) * (1 if n[2] >= 0 else -1)
+    axis = np.cross(n, [0.0, 0.0, 1.0])
+    sin_a = float(np.linalg.norm(axis))
+    R = cv2.Rodrigues(axis / sin_a * math.atan2(sin_a, float(n[2])))[0] if sin_a > 1e-9 else np.eye(3)
+    return K @ R @ np.linalg.inv(K)
+
+
+def sheet_views(gray: np.ndarray) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Листы, видимые всеми четырьмя сторонами: (контур в пикселях фото, гомография «фото -> вид сверху»).
+    Нужны, чтобы узнать эталон при сильном наклоне камеры: на фото он сжат вдвое и сам на квадрат не похож."""
+    from .detection import LINEAR
+
+    H_img, W_img = gray.shape
+    s = min(1.0, WORK_SIDE / max(H_img, W_img))
+    small = cv2.resize(gray, None, fx=s, fy=s, interpolation=cv2.INTER_AREA) if s < 1 else gray
+    lin = cv2.GaussianBlur(LINEAR[gray] if gray.dtype == np.uint8 else gray.astype(np.float32), (0, 0), 1.0)
+    hs, ws = small.shape
+    out = []
+    for mask in _candidates(small):
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        for c in contours:
+            if cv2.contourArea(c) < MIN_AREA * hs * ws:
+                continue
+            fits = _side_lines(c, s, ws, hs, lin)
+            if len(fits) != 4:
+                continue
+            lines = [f[0] for f in _around(fits, c, s)]
+            if _angle_between(lines[0], lines[2]) > OPPOSITE_MAX_DEG or _angle_between(lines[1], lines[3]) > OPPOSITE_MAX_DEG:
+                continue
+            hl = [_homog_line(l) for l in lines]
+            out.append((c.reshape(-1, 2) / s, _top_view(np.cross(hl[0], hl[2]), np.cross(hl[1], hl[3]), W_img, H_img)))
+    return out
 
 
 def _solve(fits, marker, marker_mm, contour, s) -> dict | None:
     if len(fits) < 3 or len(fits) > 4:
         return None
-    # стороны по кругу вокруг листа
-    cx, cy = contour.reshape(-1, 2).mean(axis=0) / s
-    def around(f):
-        vx, vy, x0, y0 = f[0]
-        t = (cx - x0) * vx + (cy - y0) * vy
-        return math.atan2(y0 + t * vy - cy, x0 + t * vx - cx)
-    fits = sorted(fits, key=around)
+    fits = _around(fits, contour, s)
     lines = [f[0] for f in fits]
     rms = max(f[1] for f in fits)
     if len(fits) == 4:
         # противоположные стороны — 0 и 2, 1 и 3; они не должны быть почти перпендикулярны
-        if _angle_between(lines[0], lines[2]) > 40 or _angle_between(lines[1], lines[3]) > 40:
+        if _angle_between(lines[0], lines[2]) > OPPOSITE_MAX_DEG or _angle_between(lines[1], lines[3]) > OPPOSITE_MAX_DEG:
             return None
         hl = [_homog_line(l) for l in lines]
         corners = [np.cross(hl[i - 1], hl[i]) for i in range(4)]

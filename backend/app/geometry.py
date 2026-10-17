@@ -225,14 +225,16 @@ def build_calibration(
     # Перспектива, по убыванию надёжности:
     # 1) лист бумаги в кадре (его края, plane.py);
     # 2) поза эталона при известном фокусном расстоянии (pose.py) — фокусное из EXIF или как у телефона;
+    #    видимые стороны листа (лист не целиком в кадре) её уточняют;
     # 3) только по трапеции эталона — если она заметно сильнее шума измерения углов
-    by_sheet = bool(plane) and perspective != "off"
+    by_sheet = bool(plane) and plane.get("source") == "sheet" and perspective != "off"
+    edges = plane.get("lines") if plane and plane.get("source") == "edges" else None
     pose = None
     focal_px = None
     if image_size is not None:
         focal_px = (focal35_mm or config.DEFAULT_FOCAL35_MM) / 43.27 * math.hypot(*image_size)  # 43,27 мм — диагональ кадра 35 мм
         if not by_sheet and perspective != "off":
-            pose = marker_pose(c, marker_size_mm, image_size, focal_px, 0.03 if focal35_mm else 0.12, sigma_px)
+            pose = marker_pose(c, marker_size_mm, image_size, focal_px, 0.03 if focal35_mm else 0.12, sigma_px, edges)
     noise_level = 3.0 * math.sqrt(2) * sigma_px / side_px
     if by_sheet:
         # лист в кадре: перспектива по его краям, масштаб и растяжение — по эталону
@@ -262,6 +264,12 @@ def build_calibration(
             "MARKER_SMALL",
             f"Эталон на снимке мелкий ({side_px:.0f} пикс.). Снимите ближе или загрузите фото без сжатия — "
             f"тогда погрешность станет меньше (сейчас около ±{area_unc_pct:.1f}%).",
+        ))
+    if by_sheet and sides.min() / sides.max() < config.SHEET_STRONG_SQUASH:
+        warnings.append(_warn(
+            "STRONG_TILT",
+            f"Камера сильно наклонена: эталон на фото сжат в {sides.max() / sides.min():.1f} раза. Перспектива исправлена "
+            "по листу, но дальние детали сжаты и обводятся хуже — точнее снимать сверху.",
         ))
     if pose:
         if pose["tilt_deg"] >= config.POSE_STRONG_TILT_DEG:
