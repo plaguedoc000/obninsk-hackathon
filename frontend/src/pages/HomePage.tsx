@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react'
 import { ImagePlus } from 'lucide-react'
 import { toast } from 'sonner'
 import AppHeader from '@/components/AppHeader'
+import CompareView from '@/components/CompareView'
 import Editor from '@/components/Editor'
 import EmptyState, { LoadingState } from '@/components/EmptyState'
 import PhotoList from '@/components/PhotoList'
@@ -19,7 +20,7 @@ type Patch = Partial<Photo> | ((p: Photo) => Partial<Photo>)
 export default function HomePage() {
   const [photos, setPhotos] = useState<Photo[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
-  // «Привести к масштабу»: picking — идёт выбор фото, picked — выбранные по порядку, normIds — уже приведённые
+  // «Масштабирование»: picking — идёт выбор фото, picked — выбранные по порядку, normIds — уже приведённые
   const [picking, setPicking] = useState(false)
   const [picked, setPicked] = useState<string[]>([])
   const [normIds, setNormIds] = useState<string[] | null>(null)
@@ -172,7 +173,8 @@ export default function HomePage() {
       setPicking(false)
       return
     }
-    setPicked(normIds ?? [])
+    // выбор запоминается: при повторном входе отмечены те же фото, что и в прошлый раз
+    if (!picked.length && normIds) setPicked(normIds)
     setPicking(true)
   }
 
@@ -188,6 +190,13 @@ export default function HomePage() {
     setPicked((prev) => (prev.includes(photo.id) ? prev.filter((x) => x !== photo.id) : [...prev, photo.id]))
   }
 
+  // «Выбрать все»: отмечает все фото с эталоном (уже отмеченные сохраняют свои номера), повторно — снимает всё
+  function pickAll() {
+    const ready = photos.filter((p) => p.marker && p.status === 'ready').map((p) => p.id)
+    const all = ready.length > 0 && ready.every((id) => picked.includes(id))
+    setPicked(all ? [] : [...picked.filter((id) => ready.includes(id)), ...ready.filter((id) => !picked.includes(id))])
+  }
+
   function applyScale() {
     if (picked.length < 2) return
     setNormIds(picked)
@@ -196,7 +205,6 @@ export default function HomePage() {
 
   function resetScale() {
     setNormIds(null)
-    setPicked([])
     setPicking(false)
   }
 
@@ -264,6 +272,7 @@ export default function HomePage() {
       onRemove={removePhoto}
       onAdd={pickFiles}
       onAddFolder={() => folderInput.current?.click()}
+      onSelectAll={pickAll}
       onApply={applyScale}
       onReset={resetScale}
       onCancel={() => setPicking(false)}
@@ -278,8 +287,15 @@ export default function HomePage() {
       ? { list: normPhotos.map((p) => ({ width: p.width, height: p.height, ppm: scaleOf(p)!.ppm })), ppm: activeScale.ppm }
       : null
 
+  // В режиме «Масштабирование» вместо редактора — выбранные фото рядом, по порядку выбора
+  const pickedPhotos = picked
+    .map((id) => photos.find((p) => p.id === id))
+    .filter((p): p is Photo => !!p && p.status === 'ready' && !!p.marker && !!p.width)
+
   let view
-  if (!active) {
+  if (picking) {
+    view = <CompareView photos={pickedPhotos} />
+  } else if (!active) {
     view = <EmptyState onPick={pickFiles} />
   } else if (active.status === 'ready') {
     view = (

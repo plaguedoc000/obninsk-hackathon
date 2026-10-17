@@ -1,4 +1,4 @@
-import { FolderOpen, Loader2, X } from 'lucide-react'
+import { Check, FolderOpen, Loader2, X } from 'lucide-react'
 import { scaleOf } from '@/lib/measure'
 import type { Photo } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -14,6 +14,7 @@ type Props = {
   onRemove: (id: string) => void
   onAdd: () => void
   onAddFolder: () => void
+  onSelectAll: () => void
   onApply: () => void
   onReset: () => void
   onCancel: () => void
@@ -22,24 +23,29 @@ type Props = {
 const TW = 270
 const TH = 180
 
-// Правая панель: количество фото, «Добавить фото» и крупные миниатюры. В режиме «Привести к масштабу»
+// Правая панель: количество фото, «Добавить фото» и крупные миниатюры. В режиме «Масштабирование»
 // на миниатюрах номера выбора, а после приведения фото уменьшаются до общего масштаба
-export default function PhotoList({ photos, activeId, picking, picked, normIds, onOpen, onToggle, onRemove, onAdd, onAddFolder, onApply, onReset, onCancel }: Props) {
+export default function PhotoList({ photos, activeId, picking, picked, normIds, onOpen, onToggle, onRemove, onAdd, onAddFolder, onSelectAll, onApply, onReset, onCancel }: Props) {
   const fit = (p: Photo) => Math.min(TW / p.width, TH / p.height)
   const normed = photos.filter((p) => normIds?.includes(p.id) && p.marker && p.width)
   // общий масштаб миниатюр: самый мелкий, при котором влезает каждое приведённое фото
   const common = normed.length >= 2 ? Math.min(...normed.map((p) => fit(p) * scaleOf(p)!.ppm)) : null
+  // выбрать можно только фото с эталоном
+  const pickable = photos.filter((p) => p.marker && p.status === 'ready')
+  const allPicked = pickable.length > 0 && pickable.every((p) => picked.includes(p.id))
 
   return (
     <>
-      <div className="font-mono text-[11px] font-medium tracking-[.14em] text-lab-text/55">Количество {photos.length}</div>
-      <div className="h-px shrink-0 bg-lab-sky/30" />
-      {/* сразу открывается системное окно: файлы — большой кнопкой, папка целиком — значком справа */}
-      <div className="flex h-10 shrink-0 gap-1.5">
+      {/* Шапка списка закреплена и не уезжает при прокрутке: количество, «Добавить фото» и папка.
+          Сразу открывается системное окно: файлы — кнопкой, папка целиком — значком справа */}
+      <div className="sticky -top-5 z-10 -mx-[26px] -mt-5 flex shrink-0 items-center gap-1.5 border-b border-lab-sky/30 bg-lab-bg/90 px-[26px] pt-5 pb-3 backdrop-blur">
+        <div className="mr-auto pr-2 font-mono text-[11px] font-medium tracking-[.14em] whitespace-nowrap text-lab-text/55">
+          Количество {photos.length}
+        </div>
         <button
           type="button"
           onClick={onAdd}
-          className="flex flex-1 items-center justify-center border border-dashed border-lab-sky/45 font-mono text-xs font-medium tracking-[.08em] text-lab-text/75 transition-colors outline-none hover:border-lab-sky hover:text-white focus-visible:ring-2 focus-visible:ring-lab-blue"
+          className="flex h-10 items-center justify-center border border-dashed border-lab-sky/45 px-3.5 font-mono text-xs font-medium tracking-[.08em] whitespace-nowrap text-lab-text/75 transition-colors outline-none hover:border-lab-sky hover:text-white focus-visible:ring-2 focus-visible:ring-lab-blue"
         >
           + ДОБАВИТЬ ФОТО
         </button>
@@ -48,7 +54,7 @@ export default function PhotoList({ photos, activeId, picking, picked, normIds, 
           onClick={onAddFolder}
           title="Добавить все фото из папки"
           aria-label="Добавить папку с фото"
-          className="flex w-10 items-center justify-center border border-dashed border-lab-sky/45 text-lab-text/75 transition-colors outline-none hover:border-lab-sky hover:text-white focus-visible:ring-2 focus-visible:ring-lab-blue"
+          className="flex size-10 shrink-0 items-center justify-center border border-dashed border-lab-sky/45 text-lab-text/75 transition-colors outline-none hover:border-lab-sky hover:text-white focus-visible:ring-2 focus-visible:ring-lab-blue"
         >
           <FolderOpen className="size-4" />
         </button>
@@ -149,9 +155,27 @@ export default function PhotoList({ photos, activeId, picking, picked, normIds, 
         })}
 
         {picking && (
-          <div className="sticky bottom-0 flex flex-col gap-2.5 border border-lab-blue bg-[#0A0D22] p-3.5 shadow-[0_-10px_30px_rgba(4,5,15,.9),0_0_24px_rgba(81,112,255,.3)]">
-            <div className="flex justify-between gap-2 font-mono text-xs font-medium">
-              <span className="text-lab-text/75">Выберите фото для приведения</span>
+          <div className="sticky bottom-0 flex flex-col gap-2.5 border border-[#3549A6] bg-[#0A0D22] p-3.5 shadow-[0_-10px_30px_rgba(4,5,15,.9),0_0_20px_rgba(53,73,166,.25)]">
+            <span className="font-mono text-xs font-medium text-lab-text/75">Выберите фото для приведения</span>
+            <div className="flex items-center justify-between gap-2 font-mono text-xs font-medium">
+              <button
+                type="button"
+                role="checkbox"
+                aria-checked={allPicked}
+                onClick={onSelectAll}
+                disabled={!pickable.length}
+                className="flex items-center gap-2 text-lab-text/85 outline-none hover:text-white focus-visible:ring-2 focus-visible:ring-lab-blue disabled:opacity-40"
+              >
+                <span
+                  className={cn(
+                    'flex size-4 shrink-0 items-center justify-center border',
+                    allPicked ? 'border-lab-blue bg-lab-blue text-white' : 'border-lab-sky/60',
+                  )}
+                >
+                  {allPicked && <Check className="size-3" strokeWidth={3} />}
+                </span>
+                {allPicked ? 'ОТМЕНИТЬ ВСЕ' : 'ВЫБРАТЬ ВСЕ'}
+              </button>
               <span className="shrink-0 text-white">выбрано {picked.length}</span>
             </div>
             <button

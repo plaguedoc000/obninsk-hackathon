@@ -12,7 +12,7 @@ type Props = {
 const SAVE_BUTTON =
   'flex h-9 items-center border border-lab-sky/40 px-4 whitespace-nowrap transition-colors outline-none hover:bg-lab-blue/15 focus-visible:ring-2 focus-visible:ring-lab-blue focus-visible:ring-inset'
 
-// Шапка: логотип и две кнопки — «Привести к масштабу» и «Сохранить».
+// Шапка: логотип и две кнопки — «Сохранить» и «Масштабирование».
 // «Сохранить» раскрывается в две: «Сохранить CSV» (таблица) и «Сохранить файлы» (фото в общем масштабе)
 export default function AppHeader({ picking, normalized, onScale, onSaveCsv, onSaveFiles }: Props) {
   const [open, setOpen] = useState(false)
@@ -49,22 +49,6 @@ export default function AppHeader({ picking, normalized, onScale, onSaveCsv, onS
       </div>
 
       <nav className="flex gap-2 font-mono text-xs font-medium tracking-[.08em]">
-        <button
-          type="button"
-          onClick={onScale}
-          aria-pressed={picking}
-          title="Выберите фото и приведите их к одному масштабу по эталону (C)"
-          className={cn(
-            'flex h-9 items-center gap-2 border border-lab-blue px-4 shadow-[0_0_16px_rgba(81,112,255,.3)] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-white',
-            picking || normalized ? 'bg-lab-blue' : 'bg-lab-blue/12 hover:bg-lab-blue/25',
-          )}
-        >
-          <span
-            className="size-3 shrink-0 rounded-full border-2 border-lab-sky"
-            style={{ background: 'linear-gradient(90deg,#5170FF 50%,transparent 50%)' }}
-          />
-          {normalized ? 'МАСШТАБ ПРИВЕДЁН ✓' : 'ПРИВЕСТИ К МАСШТАБУ'}
-        </button>
         <div ref={box} className="flex">
           <Unfold shown={!open}>
             <button type="button" onClick={() => setOpen(true)} title="Сохранить таблицу или фото" className={SAVE_BUTTON}>
@@ -87,6 +71,22 @@ export default function AppHeader({ picking, normalized, onScale, onSaveCsv, onS
             </button>
           </Unfold>
         </div>
+        <button
+          type="button"
+          onClick={onScale}
+          aria-pressed={picking}
+          title="Масштабирование: выберите фото и приведите их к одному масштабу по эталону (C)"
+          className={cn(
+            'flex h-9 items-center gap-2 border border-lab-blue px-4 shadow-[0_0_16px_rgba(81,112,255,.3)] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-white',
+            picking || normalized ? 'bg-lab-blue' : 'bg-lab-blue/12 hover:bg-lab-blue/25',
+          )}
+        >
+          <span
+            className="size-3 shrink-0 rounded-full border-2 border-lab-sky"
+            style={{ background: 'linear-gradient(90deg,#5170FF 50%,transparent 50%)' }}
+          />
+          {normalized ? 'МАСШТАБИРОВАНИЕ ✓' : 'МАСШТАБИРОВАНИЕ'}
+        </button>
       </nav>
     </header>
   )
