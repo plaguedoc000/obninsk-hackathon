@@ -45,6 +45,7 @@ TILT_SIDE_RATIO = _env_float("ONESCALE_TILT_SIDE_RATIO", 0.08)
 
 # Предупреждения
 SMALL_MARKER_PX = _env_float("ONESCALE_SMALL_MARKER_PX", 60.0)       # эталон мелкий
+SMALL_SEGMENT_PX = _env_float("ONESCALE_SMALL_SEGMENT_PX", 150.0)    # эталон-отрезок короткий
 STRONG_TILT_DEG = _env_float("ONESCALE_STRONG_TILT_DEG", 12.0)       # заметный наклон камеры
 NOT_SQUARE_RATIO = _env_float("ONESCALE_NOT_SQUARE_RATIO", 0.06)     # эталон не квадратный
 FAR_FROM_MARKER_SIDES = _env_float("ONESCALE_FAR_SIDES", 12.0)       # объект далеко от эталона
@@ -61,7 +62,7 @@ DETECT_MAX_SIDE = _env_int("ONESCALE_DETECT_MAX_SIDE", 1600)
 DETECT_MAX_CANDIDATES = _env_int("ONESCALE_DETECT_MAX_CANDIDATES", 5)
 
 # Ограничения на загрузку
-MAX_UPLOAD_MB = _env_float("ONESCALE_MAX_UPLOAD_MB", 60.0)
+MAX_UPLOAD_MB = _env_float("ONESCALE_MAX_UPLOAD_MB", 1.0)  # сайт сам сжимает фото до 1 МБ (frontend/src/lib/compress.ts)
 MAX_IMAGE_PIXELS = _env_int("ONESCALE_MAX_IMAGE_PIXELS", 120_000_000)
 
 # Сколько фото держать в памяти для быстрой работы (на маленьком сервере — меньше)
@@ -70,8 +71,9 @@ CACHE_IMAGES = max(1, _env_int("ONESCALE_CACHE_IMAGES", 6))
 # Приведение к масштабу: ограничение размера выходной картинки
 MAX_OUTPUT_SIDE = _env_int("ONESCALE_MAX_OUTPUT_SIDE", 8000)
 
-# Вход через Флида ID: Client ID проекта из консоли Флиды. Пусто — кнопка «Войти» сообщит, что вход не настроен
-FLIDA_CLIENT_ID = os.environ.get("FLIDA_CLIENT_ID", "").strip()
+# Вход через Флида ID: Client ID проекта «Акулы хакатонов». Это не секрет — браузер всё равно его видит.
+# Client Secret сайту не нужен и в код не попадает. Другой проект — FLIDA_CLIENT_ID в .env
+FLIDA_CLIENT_ID = os.environ.get("FLIDA_CLIENT_ID", "").strip() or "01a14946-555d-7956-92be-2cb721e15313"
 FLIDA_USERINFO_URL = "https://id.flida.ru/api/oidc/userinfo"
 SESSION_DAYS = _env_int("ONESCALE_SESSION_DAYS", 30)
 

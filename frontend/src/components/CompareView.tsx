@@ -143,14 +143,26 @@ export default function CompareView({ photos }: Props) {
                                 vectorEffect="non-scaling-stroke"
                               />
                             ))}
-                          {c.p.marker && (
-                            <polygon
-                              points={c.p.marker.map((q) => `${q.x},${q.y}`).join(' ')}
-                              fill="none"
+                          {c.p.segment ? (
+                            <line
+                              x1={c.p.segment.a.x}
+                              y1={c.p.segment.a.y}
+                              x2={c.p.segment.b.x}
+                              y2={c.p.segment.b.y}
                               stroke="#5170FF"
                               strokeWidth={2}
                               vectorEffect="non-scaling-stroke"
                             />
+                          ) : (
+                            c.p.marker && (
+                              <polygon
+                                points={c.p.marker.map((q) => `${q.x},${q.y}`).join(' ')}
+                                fill="none"
+                                stroke="#5170FF"
+                                strokeWidth={2}
+                                vectorEffect="non-scaling-stroke"
+                              />
+                            )
                           )}
                         </svg>
                       </div>
@@ -173,7 +185,10 @@ export default function CompareView({ photos }: Props) {
               </div>
             ) : (
               <div className="flex h-full items-center justify-center p-6 text-center text-[15px] leading-normal text-lab-text/62">
-                Отметьте фото справа — они появятся здесь в одном масштабе. Для сравнения нужно два фото или больше.
+                <span>
+                  <span className="lg:hidden">Отметьте фото в ленте внизу</span>
+                  <span className="hidden lg:inline">Отметьте фото справа</span> — они появятся здесь в одном масштабе. Для сравнения нужно два фото или больше.
+                </span>
               </div>
             )}
           </div>
@@ -202,7 +217,7 @@ export default function CompareView({ photos }: Props) {
               <div className="flex items-center gap-3 font-mono text-xs font-medium text-lab-text/75">
                 {norm && k > 0 && <div className={cn('h-2 shrink-0 border-2 border-t-0 border-lab-sky transition-[width]', EASE)} style={{ width: cm }} />}
                 {norm
-                  ? `1 см = ${Math.round(cm)} px · все снимки приведены к одному масштабу по эталону`
+                  ? `1 см = ${Math.round(cm)} px`
                   : 'Снимки как сняты — эталон на каждом разного размера'}
               </div>
             )}

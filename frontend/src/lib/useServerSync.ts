@@ -83,10 +83,13 @@ export function useServerSync(photos: Photo[], updatePhoto: (id: string, patch: 
       if (!photo?.serverId || !state) return
       const id = photo.serverId
 
-      // 1. эталон: пересчёт масштаба пересчитывает и все сохранённые области
+      // 1. эталон (квадрат или отрезок): пересчёт масштаба пересчитывает и все сохранённые области
       if (photo.marker) {
         const sig = pointsSig(photo.marker)
-        if (sig !== state.marker) applyImage(photoId, await api.setCorners(id, photo.marker), sig)
+        if (sig !== state.marker) {
+          const image = photo.segment ? await api.setSegment(id, photo.segment) : await api.setCorners(id, photo.marker)
+          applyImage(photoId, image, sig)
+        }
       }
 
       // 2. удалённые области

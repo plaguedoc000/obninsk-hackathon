@@ -1,22 +1,25 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource-variable/manrope";
-@import "@fontsource-variable/unbounded";
-@import "@fontsource-variable/jetbrains-mono";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
     --font-heading: var(--font-sans);
-    --font-sans: 'Manrope Variable', sans-serif;
-    --font-display: 'Unbounded Variable', sans-serif;
-    --font-mono: 'JetBrains Mono Variable', ui-monospace, monospace;
+    /* Весь сайт — SF Pro Text Regular 400. Это системный шрифт Apple: на Mac и iPhone он уже есть,
+       выкладывать его файлы на сайт лицензия не разрешает. На Windows будет похожий Segoe UI, на Android — Roboto */
+    --font-sans: 'SF Pro Text', -apple-system, BlinkMacSystemFont, system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    --font-display: var(--font-sans);
+    --font-mono: var(--font-sans);
+    /* «medium» и «semibold» тоже Regular 400; жирным остаётся только название в логотипе */
+    --font-weight-medium: 400;
+    --font-weight-semibold: 400;
     /* «Лаборатория»: navy, crimson, sky blue */
     --color-lab-bg: #04050f;
     --color-lab-blue: #5170ff;
     --color-lab-sky: #6495ed;
     --color-lab-red: #e01e3c;
+    --color-lab-brand: #fa0141; /* красный из логотипа МераКадр */
     --color-lab-navy: #004aad;
     --color-lab-text: #e8ecfa;
     --color-lab-paper: #f2eee8;
@@ -142,6 +145,8 @@
     }
   html {
     @apply font-sans;
+    /* цифры одной ширины, как были в моноширинном шрифте: площади в столбик не прыгают */
+    font-variant-numeric: tabular-nums;
     }
 }
 

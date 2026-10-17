@@ -12,7 +12,7 @@ concurrency:
 
 env:
   SERVER: deploy@31.77.173.151
-  SITE_URL: https://31-77-173-151.sslip.io
+  SITE_URL: https://merakadr.ru
 
 jobs:
   deploy:

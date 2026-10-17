@@ -6,6 +6,8 @@
 2. Находим контуры пятен, оставляем выпуклые четырёхугольники.
 3. Проверяем «похожесть на эталон»: стороны примерно равны, углы около 90°,
    внутри ровный цвет, снаружи заметно светлее (или темнее для светлого эталона).
+   Ищем три вида эталона: тёмный на светлом, светлый на тёмном и цветной — по насыщенности цвета
+   (жёлтый на белом почти не отличается по яркости, но сильно по цвету). При равенстве выигрывает тёмный.
 4. Лучшие кандидаты уточняем на полном разрешении: края ищем с точностью до долей
    пикселя по профилю яркости поперёк края, через точки края проводим прямые,
    углы = пересечения прямых.
@@ -211,8 +213,12 @@ def _find_candidates(gray_small: np.ndarray, dark: bool, chroma_small: np.ndarra
             )
             out.append({"quad": q, "score": float(score) * (0.9 if restored else 1.0), "side": side,
                         "contrast": float(contrast), "restored": restored, "squashed": squashed})
-    # убираем дубли (один и тот же квадрат, найденный разными порогами)
-    out.sort(key=lambda d: -d["score"])
+    return _dedup(out)
+
+
+def _dedup(cands: list[dict]) -> list[dict]:
+    """Убираем дубли: один и тот же квадрат, найденный разными порогами или по яркости и по цвету сразу."""
+    out = sorted(cands, key=lambda d: -d["score"])
     kept: list[dict] = []
     for cnd in out:
         c0 = cnd["quad"].mean(axis=0)
@@ -382,8 +388,50 @@ def to_gray(bgr: np.ndarray) -> np.ndarray:
     return bgr if bgr.ndim == 2 else cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
 
 
-def detect_marker(bgr: np.ndarray, polarity: str = "dark", max_candidates: int | None = None) -> dict:
-    """Ищет эталон. polarity: 'dark' — тёмный на светлом (по умолчанию), 'light' — светлый на тёмном, 'any'."""
+def _chroma(bgr: np.ndarray) -> np.ndarray:
+    """Насыщенность: разница самого яркого и самого тусклого канала. У белого, серого и чёрного — около 0"""
+    b, g, r = cv2.split(bgr)
+    return cv2.subtract(cv2.max(cv2.max(b, g), r), cv2.min(cv2.min(b, g), r))
+
+
+def _color_channel(bgr: np.ndarray, quad: np.ndarray) -> tuple[np.ndarray, bool]:
+    """Для цветного эталона углы уточняем по тому каналу (B, G или R), где эталон сильнее всего отличается
+    от фона: каналы — это настоящая яркость света, край в них стоит там же, где на самом деле.
+    Второе значение — эталон в этом канале темнее фона"""
+    side = math.sqrt(polygon_area(quad))
+    best = None
+    for ch in cv2.split(bgr):
+        mi, mo = _levels(ch, quad, side)
+        if best is None or abs(mo - mi) > best[0]:
+            best = (abs(mo - mi), ch, mi < mo)
+    return best[1], best[2]
+
+
+def _drop_substrates(cands: list[dict]) -> list[dict]:
+    """Квадрат, внутри которого целиком лежит уверенный квадрат другого вида (тёмный на белой карточке,
+    белый на чёрной), — подложка, а не эталон: эталон внутри ровный"""
+    drop = set()
+    for i, big in enumerate(cands):
+        qb = big["quad"].astype(np.float32).reshape(-1, 1, 2)
+        for small in cands:
+            if (small is big or small["polarity"] == big["polarity"] or small["score"] < 0.5
+                    or big["side"] < 1.8 * small["side"]):
+                continue
+            if all(cv2.pointPolygonTest(qb, (float(x), float(y)), False) > 0 for x, y in small["quad"]):
+                drop.add(i)
+                break
+    return [c for i, c in enumerate(cands) if i not in drop]
+
+
+# Тёмный квадрат на светлом — привычный эталон; светлый на тёмном и цветной уступают ему при равенстве:
+# белый лист на тёмном столе или цветная наклейка не должны перебить настоящий эталон
+POLARITY_WEIGHT = {"dark": 1.0, "light": 0.9, "color": 0.8}
+POLARITIES = {"dark": ["dark"], "light": ["light"], "color": ["color"], "any": ["dark", "light", "color"]}
+
+
+def detect_marker(bgr: np.ndarray, polarity: str = "any", max_candidates: int | None = None) -> dict:
+    """Ищет эталон. polarity: 'dark' — тёмный на светлом, 'light' — светлый на тёмном, 'color' — цветной,
+    'any' — любой контрастный квадрат (по умолчанию)."""
     t0 = time.perf_counter()
     max_candidates = max_candidates or config.DETECT_MAX_CANDIDATES
     gray = to_gray(bgr)
@@ -396,12 +444,18 @@ def detect_marker(bgr: np.ndarray, polarity: str = "dark", max_candidates: int |
         chroma = cv2.subtract(col.max(axis=2), col.min(axis=2))
 
     cands = []
-    pols = {"dark": [True], "light": [False], "any": [True, False]}.get(polarity, [True])
-    for dark in pols:
-        for c in _find_candidates(small, dark, chroma):
-            c["dark"] = dark
+    for pol in POLARITIES.get(polarity, POLARITIES["any"]):
+        if pol == "color":
+            # цветной квадрат на сером, белом или чёрном: на карте насыщенности он светлый на тёмном
+            found = _find_candidates(chroma, False) if chroma is not None else []
+        else:
+            found = _find_candidates(small, pol == "dark", chroma)
+        for c in found:
+            c["polarity"] = pol
+            c["dark"] = pol == "dark"
+            c["score"] *= POLARITY_WEIGHT[pol]
             cands.append(c)
-    cands.sort(key=lambda d: -d["score"])
+    cands = _drop_substrates(_dedup(cands))
     squashed = [c for c in cands if c["squashed"]]
     cands = [c for c in cands if not c["squashed"]]
     if not cands and squashed:
@@ -411,7 +465,11 @@ def detect_marker(bgr: np.ndarray, polarity: str = "dark", max_candidates: int |
     results = []
     for c in cands:
         q_full = c["quad"] / scale
-        corners, sigma, refined = refine_corners(gray, q_full, dark=c["dark"])
+        if c["polarity"] == "color":
+            channel, dark = _color_channel(bgr, q_full)
+            corners, sigma, refined = refine_corners(channel, q_full, dark=dark)
+        else:
+            corners, sigma, refined = refine_corners(gray, q_full, dark=c["dark"])
         if c.get("restored"):
             sigma = max(sigma, 1.0)  # угол достроен по продолжению сторон — он заведомо менее точен
         corners = order_corners(corners)
@@ -425,7 +483,7 @@ def detect_marker(bgr: np.ndarray, polarity: str = "dark", max_candidates: int |
             "contrast": round(c["contrast"], 1),
             "subpixel_refined": refined,
             "sigma_px": round(sigma, 3),
-            "polarity": "dark" if c["dark"] else "light",
+            "polarity": c["polarity"],
             "corner_restored": bool(c.get("restored")),
         })
 
@@ -433,7 +491,8 @@ def detect_marker(bgr: np.ndarray, polarity: str = "dark", max_candidates: int |
     if not results:
         warnings.append({
             "code": "MARKER_NOT_FOUND",
-            "message": "Эталон не найден. Укажите 4 угла вручную или переснимите: тёмный квадрат на светлом фоне, без бликов и теней.",
+            "message": "Эталон не найден. Укажите 4 угла вручную или переснимите: контрастный квадрат — тёмный на светлом, "
+                       "светлый на тёмном или цветной, без бликов и теней.",
         })
     elif len(results) > 1 and results[1]["confidence"] > 0.8 * results[0]["confidence"]:
         warnings.append({
@@ -450,6 +509,12 @@ def detect_marker(bgr: np.ndarray, polarity: str = "dark", max_candidates: int |
         warnings.append({
             "code": "LOW_CONFIDENCE",
             "message": "Эталон найден неуверенно. Проверьте углы и при необходимости поправьте вручную.",
+        })
+
+    if results and results[0]["polarity"] == "color":
+        warnings.append({
+            "code": "MARKER_BY_COLOR",
+            "message": "Эталон найден по цвету. Проверьте, что это квадрат 1×1 см, а не наклейка или этикетка.",
         })
 
     return {

@@ -101,6 +101,19 @@ def _font(size: int):
     return None
 
 
+def _reference(M: np.ndarray, cal: dict) -> tuple[np.ndarray, bool]:
+    """Что рисовать как эталон в координатах результата: углы квадрата (замкнуто) или отрезок (два конца)."""
+    if cal.get("kind") == "segment":
+        return apply_transform(M, np.array(cal["segment_px"])), False
+    return apply_transform(M, np.array(cal["corners_px"])), True
+
+
+def _reference_label(cal: dict) -> str:
+    if cal.get("kind") == "segment":
+        return f"эталон-отрезок {fmt_num(cal['segment_mm'], 1)} мм"
+    return f"эталон {fmt_num(cal['marker_size_mm'], 1)} мм"
+
+
 def fmt_num(x: float, digits: int = 1) -> str:
     return f"{x:,.{digits}f}".replace(",", " ").replace(".", ",")
 
@@ -125,7 +138,8 @@ def annotate(img: np.ndarray, M: np.ndarray, cal: dict, target_ppmm: float, meas
     if not outlines:
         return out
     lw = max(2, int(round(min(w, h) / 400)))
-    cv2.polylines(out, [np.round(marker).astype(np.int32).reshape(-1, 1, 2)], True, (0, 220, 255), lw, cv2.LINE_AA)
+    ref, closed = _reference(M, cal)
+    cv2.polylines(out, [np.round(ref).astype(np.int32).reshape(-1, 1, 2)], closed, (0, 220, 255), lw, cv2.LINE_AA)
     labels = []
     for i, m in enumerate(measurements, 1):
         poly = m.get("_polygon_px")
@@ -136,12 +150,12 @@ def annotate(img: np.ndarray, M: np.ndarray, cal: dict, target_ppmm: float, meas
         if m.get("area_mm2") is not None:
             text = f"{m.get('label') or '#' + str(i)}: {fmt_num(m['area_mm2'] / 100, 2)} см²"
             labels.append((q.mean(axis=0), text))
-    labels.append((marker.mean(axis=0) + [0, step * 1.2 if step > 0 else 20], f"эталон {fmt_num(cal['marker_size_mm'], 1)} мм"))
+    labels.append((ref.mean(axis=0) + [0, step * 1.2 if step > 0 else 20], _reference_label(cal)))
     size = max(14, int(round(min(w, h) / 45)))
     font = _font(size)
     if font is None:
         for (x, y), text in labels:
-            ascii_text = text.replace("см²", "cm2").replace("эталон", "marker").replace("мм", "mm")
+            ascii_text = text.replace("см²", "cm2").replace("эталон", "marker").replace("отрезок", "segment").replace("мм", "mm")
             cv2.putText(out, ascii_text, (int(x), int(y)), cv2.FONT_HERSHEY_SIMPLEX, size / 30, (0, 0, 0), 4, cv2.LINE_AA)
             cv2.putText(out, ascii_text, (int(x), int(y)), cv2.FONT_HERSHEY_SIMPLEX, size / 30, (255, 255, 255), 1, cv2.LINE_AA)
         return out
@@ -174,8 +188,8 @@ def draw_outlines(img: np.ndarray, M: np.ndarray, cal: dict, measurements: list[
         if poly is not None:
             q = apply_transform(M, np.asarray(poly))
             cv2.polylines(out, [np.round(q).astype(np.int32).reshape(-1, 1, 2)], True, AREA_BGR, lw, cv2.LINE_AA)
-    marker = apply_transform(M, np.array(cal["corners_px"]))
-    cv2.polylines(out, [np.round(marker).astype(np.int32).reshape(-1, 1, 2)], True, MARKER_BGR, lw, cv2.LINE_AA)
+    ref, closed = _reference(M, cal)
+    cv2.polylines(out, [np.round(ref).astype(np.int32).reshape(-1, 1, 2)], closed, MARKER_BGR, lw, cv2.LINE_AA)
     return out
 
 

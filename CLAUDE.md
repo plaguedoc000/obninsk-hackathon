@@ -37,7 +37,7 @@
 ## Запуск
 
 - Первый раз: `npm run setup`, затем `cp .env.example .env`
-- Разработка: `npm run dev` → http://localhost:5173 (API на :8010, документация http://localhost:8010/api/docs)
+- Разработка: `npm run dev` → http://localhost:3000 (API на :8010, документация http://localhost:8010/api/docs)
 - Проверка: `npm run check` (сборка фронтенда + тесты бэкенда). Если упало — чини, не коммить.
 
 ## Правила кода
@@ -61,6 +61,7 @@
 
 ## Сервер
 
-- Сайт: https://31-77-173-151.sslip.io (запасной адрес http://31.77.173.151), документация API: `/api/docs`
+- Сайт: https://merakadr.ru (запасные адреса https://31-77-173-151.sslip.io и http://31.77.173.151), документация API: `/api/docs`
+- Домены в Caddy: `31-77-173-151.sslip.io, merakadr.ru, www.merakadr.ru` — при повторном запуске `deploy/setup-server.sh` передавай их все
 - Ключи ИИ на сервере: `/srv/app/.env`, после правки `systemctl restart app-api`
 - Логи бэкенда: `ssh root@31.77.173.151 journalctl -u app-api -n 100`

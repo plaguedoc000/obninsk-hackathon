@@ -13,7 +13,7 @@ import numpy as np
 from . import config
 from .detection import detect_marker, to_gray
 from .errors import AppError, bad_input, not_found
-from .geometry import apply_transform, build_calibration, measure_polygon, shape_to_polygon
+from .geometry import apply_transform, build_calibration, build_segment_calibration, measure_polygon, shape_to_polygon
 from .grid import find_grid
 from .imaging import encode
 from .plane import find_sheet
@@ -23,7 +23,8 @@ from .storage import Store, new_id, now_iso
 VERSION = "1.0.0"
 
 METHOD_NOTE = (
-    "Масштаб определяется по квадратному эталону известной стороны. "
+    "Масштаб определяется по квадратному эталону известной стороны или по отрезку известной длины "
+    "(например, по шкале линейки; по отрезку — только масштаб, без учёта наклона камеры). "
     "По 4 углам эталона строится преобразование «пиксели -> мм на плоскости стола»: аффинное "
     "(масштаб, поворот, лёгкое растяжение) или, при заметном наклоне камеры, перспективное (гомография). "
     "Площадь обводки считается по формуле шнурка (Гаусса) в миллиметрах. "
@@ -106,11 +107,11 @@ def image_view(meta: dict, with_measurements: bool = True) -> dict:
 
 # ---------------------------------------------------------------- эталон
 
-def run_detection(store: Store, image_id: str, polarity: str = "dark", marker_size_mm: float | None = None,
+def run_detection(store: Store, image_id: str, polarity: str = "any", marker_size_mm: float | None = None,
                   auto_calibrate: bool = True, perspective: str = "auto") -> dict:
     meta = store.get(image_id)
-    if polarity not in ("dark", "light", "any"):
-        raise bad_input("BAD_POLARITY", "polarity: допустимо 'dark', 'light' или 'any'")
+    if polarity not in ("dark", "light", "color", "any"):
+        raise bad_input("BAD_POLARITY", "polarity: допустимо 'dark', 'light', 'color' или 'any'")
     bgr = store.load_bgr(image_id)
     det = detect_marker(bgr, polarity=polarity)
     meta["detection"] = det
@@ -148,12 +149,31 @@ def _check_inside(meta: dict, pts, name: str) -> None:
                         f"{name}: точки за пределами фото {w}×{h}. Координаты должны быть в пикселях исходного фото, а не экрана.")
 
 
+def _calibrate_segment(meta: dict, segment, length_mm: float | None) -> dict:
+    if not length_mm:
+        raise bad_input("NO_SEGMENT_LENGTH", "Укажите длину отрезка в мм (segment_mm)")
+    cal = build_segment_calibration(segment, length_mm, image_size=(meta["width"], meta["height"]))
+    _check_inside(meta, cal["segment_px"], "segment")
+    cal["candidate_index"] = None
+    cal["updated_at"] = now_iso()
+    return cal
+
+
 def set_calibration(store: Store, image_id: str, corners=None, candidate_index: int | None = None,
-                    marker_size_mm: float | None = None, perspective: str | None = None) -> dict:
+                    marker_size_mm: float | None = None, perspective: str | None = None,
+                    segment=None, segment_mm: float | None = None) -> dict:
     meta = store.get(image_id)
     old = meta.get("calibration") or {}
-    size = marker_size_mm or old.get("marker_size_mm") or config.DEFAULT_MARKER_MM
-    persp = perspective or old.get("perspective_mode") or "auto"
+    old_segment = old.get("kind") == "segment"
+    size = marker_size_mm or (None if old_segment else old.get("marker_size_mm")) or config.DEFAULT_MARKER_MM
+    persp = perspective or (None if old_segment else old.get("perspective_mode")) or "auto"
+    if segment is not None or (old_segment and corners is None and candidate_index is None):
+        # эталон по отрезку: новый, или тот же отрезок с другой длиной
+        seg = segment if segment is not None else old["segment_px"]
+        meta["calibration"] = _calibrate_segment(meta, seg, segment_mm or (old.get("segment_mm") if old_segment else None))
+        store.clear_cache(image_id)
+        store.save(meta)
+        return meta
     gray = to_gray(store.load_bgr(image_id))
     if corners is not None:
         cal = _calibrate(meta, corners, size, persp, "manual", None, gray=gray)
@@ -398,8 +418,9 @@ def export_rows(store: Store, image_ids: list[str] | None = None, group: str | N
                 "uncertainty_pct": v["uncertainty_pct"],
                 "method": {"scale": "масштаб", "perspective": "перспектива"}.get(v.get("method"), "") if cal else "",
                 "px_per_mm": cal["px_per_mm"] if cal else None,
-                "marker_size_mm": cal["marker_size_mm"] if cal else None,
-                "calibration": {"auto": "авто", "manual": "вручную"}.get(cal["method"], "") if cal else "нет",
+                "marker_size_mm": (cal.get("segment_mm") or cal["marker_size_mm"]) if cal else None,
+                "calibration": ("по отрезку" if cal.get("kind") == "segment"
+                                else {"auto": "авто", "manual": "вручную"}.get(cal["method"], "")) if cal else "нет",
                 "warnings": "; ".join(w["message"] for w in warns),
                 "measured_at": r.get("updated_at") or r["created_at"],
             })
@@ -478,7 +499,7 @@ def export_zip(store: Store, image_ids: list[str] | None = None, group: str | No
     calibrated = [m for m in metas if m.get("calibration")]
     report = {
         "generated_at": now_iso(),
-        "software": f"OneScale backend {VERSION}",
+        "software": f"MeraKadr backend {VERSION}",
         "method": METHOD_NOTE,
         "images": [image_view(m) for m in metas],
     }
@@ -500,7 +521,7 @@ def export_zip(store: Store, image_ids: list[str] | None = None, group: str | No
                 used.add(name)
                 z.writestr(name, data)
         z.writestr("README.txt",
-                   "Отчёт OneScale\r\n\r\n"
+                   "Отчёт МераКадр\r\n\r\n"
                    "measurements.csv — таблица измерений (открывается в Excel)\r\n"
                    "report.json — полные параметры калибровки и измерений\r\n"
                    "standardized/ — фото, приведённые к общему масштабу, с сеткой 1 см\r\n\r\n"

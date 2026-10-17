@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import ImageStage, { MAX_ZOOM, type Line, type Norm } from '@/components/ImageStage'
-import Workspace, { AreaRow, StageTitle, ToolRail } from '@/components/Workspace'
+import Workspace, { AreaRow, StageTitle, ToolRail, UNDO_ARROW } from '@/components/Workspace'
 import { api } from '@/lib/api'
 import { fmt } from '@/lib/format'
-import { orderQuad, selfIntersects } from '@/lib/geometry'
+import { orderQuad, segmentQuad, selfIntersects } from '@/lib/geometry'
 import { totalsOf } from '@/lib/measure'
 import { newId } from '@/lib/photos'
-import type { Area, Photo, Pt, Tool } from '@/lib/types'
+import type { Area, Photo, Pt, Segment, Tool } from '@/lib/types'
+import { useMobile } from '@/lib/useMobile'
+import { cn } from '@/lib/utils'
 
-type Snapshot = Pick<Photo, 'marker' | 'markerSource' | 'areas'>
+type Snapshot = Pick<Photo, 'marker' | 'segment' | 'markerSource' | 'areas'>
 
 type Props = {
   photo: Photo
@@ -34,6 +36,9 @@ export default function Editor({ photo, norm, picking, onChange }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [ruler, setRuler] = useState<Line | null>(null)
   const [busy, setBusy] = useState(false)
+  const mobile = useMobile()
+  // «Авто» на телефоне: новая область или добавить к выбранной — вместо Shift+щелчка на компьютере
+  const [addMode, setAddMode] = useState(false)
 
   // выбранная область; если её убрали «Назад», выбора просто нет
   const selected = photo.areas.find((a) => a.id === selectedId) ?? null
@@ -42,7 +47,7 @@ export default function Editor({ photo, norm, picking, onChange }: Props) {
 
   // «Назад» возвращает эталон и области к состоянию до последнего действия
   function remember() {
-    const snap: Snapshot = { marker: photo.marker, markerSource: photo.markerSource, areas: photo.areas }
+    const snap: Snapshot = { marker: photo.marker, segment: photo.segment, markerSource: photo.markerSource, areas: photo.areas }
     setHistory((h) => [...h.slice(-49), snap])
   }
 
@@ -122,9 +127,32 @@ export default function Editor({ photo, norm, picking, onChange }: Props) {
       return
     }
     remember()
-    onChange(() => ({ marker: orderQuad(next), markerSource: 'manual' }))
+    onChange(() => ({ marker: orderQuad(next), segment: null, markerSource: 'manual' }))
     setMarkerDraft([])
     setTool(null)
+  }
+
+  // Эталон-отрезок: вместо квадрата — отрезок известной длины (например, по шкале линейки на фото)
+  function setSegment(seg: Segment) {
+    onChange(() => ({ segment: seg, marker: segmentQuad(seg), markerSource: 'manual' }))
+  }
+
+  // «Отрезок»: протянутая линия становится эталоном указанной длины
+  function rulerToSegment(mm: number) {
+    if (!ruler) return
+    if (Math.hypot(ruler.b.x - ruler.a.x, ruler.b.y - ruler.a.y) < 4) {
+      toast.error('Отрезок слишком короткий — протяните линию по шкале линейки')
+      return
+    }
+    remember()
+    setSegment({ a: ruler.a, b: ruler.b, mm })
+    setRuler(null)
+  }
+
+  function segmentLength(mm: number) {
+    if (!photo.segment || mm === photo.segment.mm) return
+    remember()
+    setSegment({ ...photo.segment, mm })
   }
 
   function movePoint(areaId: string, i: number, p: Pt) {
@@ -138,7 +166,9 @@ export default function Editor({ photo, norm, picking, onChange }: Props) {
       else setDraft([])
     }
     setTool(next)
-    if (next !== 'ruler') setRuler(null)
+    if (next !== 'auto') setAddMode(false)
+    // линия линейки или черновик отрезка не переносятся в другой инструмент
+    setRuler(null)
     if (next !== 'marker') setMarkerDraft([])
   }
 
@@ -168,6 +198,8 @@ export default function Editor({ photo, norm, picking, onChange }: Props) {
       const actions: Record<string, () => void> = {
         e: () => switchTool('marker'),
         у: () => switchTool('marker'),
+        s: () => switchTool('segment'),
+        ы: () => switchTool('segment'),
         a: () => switchTool('area'),
         ф: () => switchTool('area'),
         w: () => switchTool('auto'),
@@ -196,6 +228,16 @@ export default function Editor({ photo, norm, picking, onChange }: Props) {
 
   const totals = totalsOf(photo)
   const area = photo.marker && totals.count ? fmt(totals.mm2, 1) : '—'
+  const canUndo = history.length > 0 || draft.length > 0
+
+  // Телефон: подсказка к инструменту — что сделать пальцем дальше
+  let hint: string
+  if (tool === 'marker') hint = markerDraft.length ? `Угол ${markerDraft.length + 1} из 4` : photo.marker && !photo.segment ? 'Тяните уголки рамки' : 'Нажмите 4 угла квадрата'
+  else if (tool === 'segment') hint = photo.segment ? 'Тяните концы или исправьте мм' : 'Протяните линию по шкале'
+  else if (tool === 'auto') hint = addMode ? (selected ? 'Нажмите, что добавить' : 'Нажмите на объект') : 'Нажмите на объект'
+  else if (tool === 'area') hint = draft.length ? `Точек: ${draft.length}` : 'Ставьте точки по краю'
+  else if (tool === 'ruler') hint = 'Протяните линию'
+  else hint = photo.marker ? 'Два пальца — приблизить и сдвинуть' : 'Эталон не найден — нажмите «Эталон»'
 
   return (
     <Workspace
@@ -203,7 +245,7 @@ export default function Editor({ photo, norm, picking, onChange }: Props) {
         <ToolRail
           tool={tool}
           mask={mask}
-          canUndo={history.length > 0 || draft.length > 0}
+          canUndo={canUndo}
           canDelete={!!toDelete}
           zoom={zoom}
           onTool={(t) => switchTool(tool === t ? null : t)}
@@ -211,6 +253,7 @@ export default function Editor({ photo, norm, picking, onChange }: Props) {
           onDelete={deleteArea}
           onMask={() => setMask((v) => !v)}
           onZoom={zoomBy}
+          refTool={photo.segment ? 'segment' : 'marker'}
         />
       }
     >
@@ -225,19 +268,99 @@ export default function Editor({ photo, norm, picking, onChange }: Props) {
         markerDraft={markerDraft}
         draft={draft}
         selectedId={selected?.id ?? null}
+        addMode={mobile && addMode && !!selected}
         ruler={ruler}
         onDragStart={remember}
-        onMarkerChange={(marker) => onChange(() => ({ marker, markerSource: 'manual' }))}
+        onMarkerChange={(marker) => onChange(() => ({ marker, segment: null, markerSource: 'manual' }))}
         onMarkerPoint={markerPoint}
+        onSegmentChange={setSegment}
+        onSegmentLength={segmentLength}
+        onRulerToSegment={rulerToSegment}
         onMovePoint={movePoint}
         onDraftPoint={draftPoint}
         onCloseDraft={closeDraft}
-        onWand={wand}
+        onWand={(p, add) => wand(p, add || (mobile && addMode))}
         onSelectArea={setSelectedId}
         onRuler={setRuler}
         onZoom={setZoom}
+        overlay={
+          mobile && (
+            <div className="pointer-events-none absolute bottom-2 left-2 z-10 border border-lab-red bg-lab-bg/90 px-2.5 py-1.5 font-mono text-[13px] font-semibold whitespace-nowrap text-white shadow-[0_0_14px_rgba(224,30,60,.45)]">
+              S = {area} мм²
+            </div>
+          )
+        }
       />
       <AreaRow value={area} />
+      {/* телефон: строка под фото — переключатели инструмента, подсказка, «Замкнуть», «Удалить», «Назад» */}
+      {mobile && (
+        <div className="flex h-11 shrink-0 items-center gap-1.5 font-mono text-[10px] font-semibold tracking-[.06em]">
+          {(tool === 'marker' || tool === 'segment') && (
+            <Toggle
+              tone="blue"
+              options={[
+                ['КВАДРАТ', tool === 'marker', () => switchTool('marker')],
+                ['ОТРЕЗОК', tool === 'segment', () => switchTool('segment')],
+              ]}
+            />
+          )}
+          {tool === 'auto' && (
+            <Toggle
+              tone="red"
+              options={[
+                ['НОВАЯ', !addMode, () => setAddMode(false)],
+                ['ДОБАВИТЬ', addMode, () => setAddMode(true)],
+              ]}
+            />
+          )}
+          <span className="line-clamp-2 min-w-0 flex-1 text-[11px] leading-tight font-medium tracking-normal text-lab-text/70">{hint}</span>
+          {tool === 'area' && draft.length >= 3 && (
+            <button type="button" onClick={closeDraft} className="flex h-10 shrink-0 touch-manipulation items-center bg-lab-red px-3 text-white">
+              ЗАМКНУТЬ
+            </button>
+          )}
+          {toDelete && !draft.length && (
+            <button
+              type="button"
+              onClick={deleteArea}
+              className="flex h-10 shrink-0 touch-manipulation items-center border border-lab-red/70 px-2.5 text-[#FFB3BF]"
+            >
+              УДАЛИТЬ
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={undo}
+            disabled={!canUndo}
+            aria-label="Назад"
+            className="flex size-11 shrink-0 touch-manipulation items-center justify-center border border-lab-sky/30 text-lab-red disabled:opacity-30"
+          >
+            <span className="flex size-5">{UNDO_ARROW}</span>
+          </button>
+        </div>
+      )}
     </Workspace>
+  )
+}
+
+// Переключатель из двух-трёх кнопок в строке под фото (телефон)
+function Toggle({ tone, options }: { tone: 'blue' | 'red'; options: [string, boolean, () => void][] }) {
+  return (
+    <div className={cn('flex shrink-0 border', tone === 'blue' ? 'border-lab-blue/60' : 'border-lab-red/60')}>
+      {options.map(([label, on, pick]) => (
+        <button
+          key={label}
+          type="button"
+          onClick={pick}
+          aria-pressed={on}
+          className={cn(
+            'flex h-10 touch-manipulation items-center px-2.5',
+            on ? (tone === 'blue' ? 'bg-lab-blue text-white' : 'bg-lab-red text-white') : 'text-lab-text/70',
+          )}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
   )
 }

@@ -6,7 +6,11 @@ export type ApiWarning = { code: string; message: string }
 export type Health = { status: string; version: string; images: number; heic_supported: boolean }
 
 export type ApiCalibration = {
+  kind?: 'square' | 'segment'
   corners_px: [number, number][]
+  // эталон-отрезок: два конца и длина в мм
+  segment_px?: [number, number][]
+  segment_mm?: number
   method: 'auto' | 'manual'
   px_per_mm: number
   uncertainty_pct: number
@@ -32,7 +36,7 @@ export type ApiImage = {
   height: number
   status: 'uploaded' | 'marker_not_found' | 'marker_found' | 'calibrated'
   urls: { file: string; preview: string; original: string }
-  detection: { found: boolean } | null
+  detection: { found: boolean; warnings?: ApiWarning[] } | null
   calibration: ApiCalibration | null
   measurements: ApiMeasurement[]
 }
@@ -104,6 +108,13 @@ export const api = {
 
   setCorners: (id: string, corners: { x: number; y: number }[]) =>
     request<ApiImage>(`/images/${id}/calibration`, { method: 'PUT', body: JSON.stringify({ corners: pairs(corners) }) }),
+
+  // Эталон-отрезок: два конца и сколько это мм
+  setSegment: (id: string, seg: { a: { x: number; y: number }; b: { x: number; y: number }; mm: number }) =>
+    request<ApiImage>(`/images/${id}/calibration`, {
+      method: 'PUT',
+      body: JSON.stringify({ segment: pairs([seg.a, seg.b]), segment_mm: seg.mm }),
+    }),
 
   addArea: (id: string, points: { x: number; y: number }[], label: string) =>
     request<ApiMeasurement>(`/images/${id}/measurements`, {

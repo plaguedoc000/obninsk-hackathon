@@ -1,4 +1,4 @@
-import type { Pt, Quad } from './types'
+import type { Pt, Quad, Segment } from './types'
 
 // Сторона эталона в миллиметрах
 export const MARKER_MM = 10
@@ -149,6 +149,21 @@ export function selfIntersects(points: Pt[]) {
     }
   }
   return false
+}
+
+// «Виртуальный» квадрат MARKER_MM×MARKER_MM в масштабе отрезка: центр в середине отрезка, стороны вдоль и поперёк.
+// Так эталон-отрезок работает везде, где ждут квадрат (как segment_square на бэкенде)
+export function segmentQuad(seg: Segment): Quad {
+  const k = MARKER_MM / seg.mm / 2
+  const u = { x: (seg.b.x - seg.a.x) * k, y: (seg.b.y - seg.a.y) * k }
+  const n = { x: -u.y, y: u.x }
+  const m = { x: (seg.a.x + seg.b.x) / 2, y: (seg.a.y + seg.b.y) / 2 }
+  return orderQuad([
+    { x: m.x - u.x - n.x, y: m.y - u.y - n.y },
+    { x: m.x + u.x - n.x, y: m.y + u.y - n.y },
+    { x: m.x + u.x + n.x, y: m.y + u.y + n.y },
+    { x: m.x - u.x + n.x, y: m.y - u.y + n.y },
+  ])
 }
 
 // Упорядочивает углы по часовой стрелке, первым — левый верхний

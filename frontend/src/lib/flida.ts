@@ -1,5 +1,5 @@
 // Вход через Флида ID по Web SDK: https://docs.flida.ru/id/sdk/web
-// «Войти» уводит на страницу Флиды, она возвращает на главную с ?code=…&state=…
+// «Войти» уводит на страницу Флиды, она возвращает на /flida/oauth2/callback?code=…&state=… (FlidaCallbackPage)
 // SDK сам делает PKCE и меняет код на токены, а сервер по access_token узнаёт у Флиды, кто вошёл
 import { api, type AuthUser } from '@/lib/api'
 
@@ -22,8 +22,11 @@ declare global {
 
 const SDK_URL = 'https://id.flida.ru/sdk/v1/sdk.js'
 
-// Тот же адрес нужно добавить в консоли Флиды: Платформы → Web → Redirect URL
-const redirectUri = () => `${window.location.origin}/`
+export const FLIDA_CALLBACK_PATH = '/flida/oauth2/callback'
+
+// Адрес должен точно совпадать с Redirect URL в консоли Флиды. Там есть https://merakadr.ru/… и http://localhost:3000/…,
+// поэтому на других адресах сайта (sslip.io, IP) Флида вход не пустит
+const redirectUri = () => `${window.location.origin}${FLIDA_CALLBACK_PATH}`
 
 let loading: Promise<FlidaGlobal> | null = null
 
@@ -68,13 +71,7 @@ function readable(e: unknown) {
   return new Error(MESSAGES[code] ?? 'Не удалось войти через Флида ID')
 }
 
-// Флида вернула на сайт после входа (или отказа)
-export function isFlidaCallback() {
-  const q = new URLSearchParams(window.location.search)
-  return window.location.pathname === '/' && q.has('state') && (q.has('code') || q.has('error'))
-}
-
-// Уходим на страницу Флиды. Обратно пользователь вернётся на главную, там сработает finishFlidaLogin
+// Уходим на страницу Флиды. Обратно пользователь вернётся на FLIDA_CALLBACK_PATH, там сработает finishFlidaLogin
 export async function startFlidaLogin(clientId: string) {
   try {
     await (await createSdk(clientId)).authorize()
@@ -89,10 +86,7 @@ let finishing: Promise<AuthUser> | null = null
 export function finishFlidaLogin(clientId: string) {
   finishing ??= (async () => {
     try {
-      const sdk = await createSdk(clientId)
-      // SDK уже прочитал ответ — убираем code и state из адресной строки
-      window.history.replaceState(window.history.state, '', window.location.pathname)
-      const tokens = await sdk.autoAuthorization
+      const tokens = await (await createSdk(clientId)).autoAuthorization
       if (!tokens) throw new Error('Флида ID не вернул вход. Нажмите «Войти» ещё раз')
       return (await api.loginFlida(tokens.access_token)).user
     } catch (e) {

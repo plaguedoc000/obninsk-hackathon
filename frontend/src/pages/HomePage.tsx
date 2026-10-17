@@ -5,14 +5,16 @@ import AppHeader from '@/components/AppHeader'
 import CompareView from '@/components/CompareView'
 import Editor from '@/components/Editor'
 import EmptyState, { LoadingState } from '@/components/EmptyState'
-import PhotoList from '@/components/PhotoList'
+import PhotoList, { PhotoStrip } from '@/components/PhotoList'
 import { Shell } from '@/components/Workspace'
 import { api } from '@/lib/api'
 import { today } from '@/lib/format'
 import { scaleOf } from '@/lib/measure'
+import { compressForUpload } from '@/lib/compress'
 import { createPhoto, isImageFile, photoFromServer, scaleFromServer, workspaceId } from '@/lib/photos'
 import { downloadBlob } from '@/lib/report'
 import type { Photo } from '@/lib/types'
+import { useMobile } from '@/lib/useMobile'
 import { useServerSync } from '@/lib/useServerSync'
 
 type Patch = Partial<Photo> | ((p: Photo) => Partial<Photo>)
@@ -22,6 +24,7 @@ export default function HomePage() {
   const [activeId, setActiveId] = useState<string | null>(null)
   // «Масштабирование»: picking — идёт выбор фото, picked — выбранные по порядку, normIds — уже приведённые
   const [picking, setPicking] = useState(false)
+  const mobile = useMobile()
   const [picked, setPicked] = useState<string[]>([])
   const [normIds, setNormIds] = useState<string[] | null>(null)
   const [dragOver, setDragOver] = useState(false)
@@ -71,10 +74,12 @@ export default function HomePage() {
 
       const failed: string[] = []
       let missing = 0
+      // эталон найден по цвету (жёлтый, розовый квадрат) — пусть человек проверит, что это не наклейка
+      const byColor: string[] = []
       // по одному: сервер на каждом фото ищет эталон
       for (const [i, photo] of created.entries()) {
         try {
-          const { images: [image] } = await api.uploadImage(images[i], workspaceId())
+          const { images: [image] } = await api.uploadImage(await compressForUpload(images[i]), workspaceId())
           URL.revokeObjectURL(photo.url)
           // фото удалили, пока оно загружалось
           if (!photosRef.current.some((p) => p.id === photo.id)) {
@@ -93,6 +98,7 @@ export default function HomePage() {
           sync.register(ready)
           updatePhoto(photo.id, ready)
           if (!ready.marker) missing++
+          if (image.detection?.warnings?.some((w) => w.code === 'MARKER_BY_COLOR')) byColor.push(photo.name)
         } catch (e) {
           failed.push(`${photo.name} — ${e instanceof Error ? e.message : 'ошибка'}`)
           setPhotos((prev) => prev.filter((p) => p.id !== photo.id))
@@ -102,6 +108,8 @@ export default function HomePage() {
       if (failed.length) toast.error(`Не удалось загрузить: ${failed.join('; ')}`)
       if (missing) toast.warning(`Эталон не найден на ${missing} из ${ok} фото — укажите его вручную`)
       else if (ok) toast.success(ok === 1 ? 'Эталон найден' : `Эталон найден на всех фото: ${ok}`)
+      if (byColor.length)
+        toast.warning(`Эталон найден по цвету: ${byColor.join(', ')}. Проверьте, что это квадрат 1×1 см, а не наклейка или этикетка`)
     },
     [updatePhoto, sync],
   )
@@ -259,9 +267,10 @@ export default function HomePage() {
 
   const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes('Files')
 
-  // Список фото в правой панели — один и тот же на всех экранах
+  // Список фото в правой панели; на телефоне — лента миниатюр под фото
+  const List = mobile ? PhotoStrip : PhotoList
   const panel = (
-    <PhotoList
+    <List
       photos={photos}
       activeId={active?.id ?? null}
       picking={picking}
@@ -313,7 +322,7 @@ export default function HomePage() {
 
   return (
     <div
-      className="lab-bg flex min-h-svh flex-col text-lab-text lg:h-svh lg:overflow-hidden"
+      className="lab-bg flex h-dvh flex-col overflow-hidden overscroll-none text-lab-text lg:h-svh"
       onDragEnter={(e) => {
         if (!hasFiles(e)) return
         dragDepth.current++

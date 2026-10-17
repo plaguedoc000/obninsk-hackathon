@@ -1,4 +1,4 @@
-"""OneScale — бэкенд для измерения площади по фото с эталоном (кейс 03, Обнинский хакатон 2026).
+"""МераКадр — бэкенд для измерения площади по фото с эталоном (кейс 03, Обнинский хакатон 2026).
 
 Запуск:  uvicorn app.main:app --reload --port 8000
 Документация API в браузере:  http://localhost:8000/api/docs
@@ -25,7 +25,7 @@ store = Store(config.DATA_DIR)
 
 # Документация под /api/: на сервере наружу открыт только этот путь
 app = FastAPI(
-    title="OneScale API",
+    title="МераКадр API",
     docs_url="/api/docs",
     redoc_url=None,
     openapi_url="/api/openapi.json",
@@ -70,7 +70,8 @@ Point = list[float]
 
 
 class DetectRequest(BaseModel):
-    polarity: Literal["dark", "light", "any"] = Field("dark", description="Эталон тёмный на светлом (dark), светлый на тёмном (light) или любой")
+    polarity: Literal["dark", "light", "color", "any"] = Field(
+        "any", description="Эталон тёмный на светлом (dark), светлый на тёмном (light), цветной (color) или любой контрастный (any)")
     marker_size_mm: Optional[float] = Field(None, gt=0, description="Сторона эталона, мм (по умолчанию 10)")
     auto_calibrate: bool = Field(True, description="Сразу откалибровать по лучшему найденному квадрату")
     perspective: Literal["auto", "on", "off"] = "auto"
@@ -81,6 +82,8 @@ class CalibrationRequest(BaseModel):
     candidate_index: Optional[int] = Field(None, ge=0, description="Или номер кандидата из результата /detect")
     marker_size_mm: Optional[float] = Field(None, gt=0, description="Сторона эталона, мм")
     perspective: Optional[Literal["auto", "on", "off"]] = Field(None, description="Исправление наклона: auto / on / off")
+    segment: Optional[list[Point]] = Field(None, description="Или 2 конца отрезка известной длины [[x,y],[x,y]] — например, по линейке")
+    segment_mm: Optional[float] = Field(None, gt=0, description="Длина этого отрезка, мм")
 
 
 class MeasurementRequest(BaseModel):
@@ -227,9 +230,10 @@ def detect(image_id: str, body: DetectRequest = DetectRequest()):
 
 
 @app.put("/api/images/{image_id}/calibration", tags=["Эталон"],
-         summary="Задать эталон: 4 угла вручную, выбрать кандидата или поменять сторону эталона")
+         summary="Задать эталон: 4 угла квадрата, отрезок известной длины, выбрать кандидата или поменять сторону эталона")
 def put_calibration(image_id: str, body: CalibrationRequest):
-    meta = service.set_calibration(store, image_id, body.corners, body.candidate_index, body.marker_size_mm, body.perspective)
+    meta = service.set_calibration(store, image_id, body.corners, body.candidate_index, body.marker_size_mm, body.perspective,
+                                   body.segment, body.segment_mm)
     return service.image_view(meta)
 
 

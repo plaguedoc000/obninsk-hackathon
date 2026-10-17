@@ -2,22 +2,15 @@ import { useEffect, useState } from 'react'
 import { LogIn, LogOut } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, type AuthState } from '@/lib/api'
-import { finishFlidaLogin, isFlidaCallback, startFlidaLogin } from '@/lib/flida'
-import { cn } from '@/lib/utils'
+import { startFlidaLogin } from '@/lib/flida'
 
+// Как соседние кнопки шапки: на телефоне выше и только значок, подпись — с lg
 const BUTTON =
-  'flex h-9 items-center gap-2 border border-lab-sky/40 px-3 font-mono text-xs font-medium tracking-[.08em] whitespace-nowrap transition-colors outline-none hover:bg-lab-blue/15 focus-visible:ring-2 focus-visible:ring-lab-blue focus-visible:ring-inset disabled:pointer-events-none disabled:opacity-60'
+  'flex h-10 items-center gap-2 border border-lab-sky/40 px-3 whitespace-nowrap transition-colors outline-none hover:bg-lab-blue/15 focus-visible:ring-2 focus-visible:ring-lab-blue focus-visible:ring-inset disabled:pointer-events-none disabled:opacity-60 lg:h-9'
 
-const initials = (name: string) =>
-  name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0].toUpperCase())
-    .join('')
-
-// Вход через Флида ID. Пока не вошли — «Войти», после входа — имя, по нажатию выход
-export default function AuthButton({ className }: { className?: string }) {
+// Вход через Флида ID. Пока не вошли — «Войти», после входа — имя, по нажатию выход.
+// Возврат от Флиды обрабатывает FlidaCallbackPage, сюда приходим уже с сессией
+export default function AuthButton() {
   const [auth, setAuth] = useState<AuthState | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -25,20 +18,7 @@ export default function AuthButton({ className }: { className?: string }) {
     let alive = true
     api
       .me()
-      .then(async (state) => {
-        if (!alive) return
-        setAuth(state)
-        if (!state.flida_client_id || !isFlidaCallback()) return
-        setBusy(true)
-        try {
-          const user = await finishFlidaLogin(state.flida_client_id)
-          if (alive) setAuth({ ...state, user })
-        } catch (e) {
-          if (alive) toast.error((e as Error).message)
-        } finally {
-          if (alive) setBusy(false)
-        }
-      })
+      .then((state) => alive && setAuth(state))
       // сервер недоступен — об этом уже сообщает главная страница
       .catch(() => {})
     return () => {
@@ -46,7 +26,7 @@ export default function AuthButton({ className }: { className?: string }) {
     }
   }, [])
 
-  // вернулись кнопкой «Назад» со страницы Флиды — браузер показывает страницу из кэша с крутящейся кнопкой
+  // вернулись кнопкой «Назад» со страницы Флиды — браузер показывает страницу из кэша с неактивной кнопкой
   useEffect(() => {
     const onShow = (e: PageTransitionEvent) => e.persisted && setBusy(false)
     window.addEventListener('pageshow', onShow)
@@ -55,7 +35,7 @@ export default function AuthButton({ className }: { className?: string }) {
 
   async function login() {
     if (!auth?.flida_client_id) {
-      toast.error('Вход через Флида ID не настроен: заполните FLIDA_CLIENT_ID в .env на сервере')
+      toast.error('Вход через Флида ID не настроен')
       return
     }
     setBusy(true)
@@ -79,22 +59,15 @@ export default function AuthButton({ className }: { className?: string }) {
     }
   }
 
-  if (auth?.user)
+  if (auth?.user) {
+    const label = `${auth.user.name} — выйти из аккаунта`
     return (
-      <button
-        type="button"
-        onClick={logout}
-        disabled={busy}
-        title={`${auth.user.name} — выйти из аккаунта`}
-        aria-label={`${auth.user.name} — выйти из аккаунта`}
-        className={cn(BUTTON, className)}
-      >
-        {/* на телефоне рядом с логотипом место только для инициалов */}
-        <span className="sm:hidden">{initials(auth.user.name)}</span>
-        <span className="max-w-40 truncate max-sm:hidden">{auth.user.name}</span>
+      <button type="button" onClick={logout} disabled={busy} title={label} aria-label={label} className={BUTTON}>
+        <span className="hidden max-w-40 truncate lg:inline">{auth.user.name}</span>
         <LogOut className="size-4 shrink-0" aria-hidden="true" />
       </button>
     )
+  }
 
   return (
     <button
@@ -103,10 +76,10 @@ export default function AuthButton({ className }: { className?: string }) {
       disabled={!auth || busy}
       title="Войти через Флида ID"
       aria-label="Войти через Флида ID"
-      className={cn(BUTTON, className)}
+      className={BUTTON}
     >
-      <LogIn className={cn('size-4 shrink-0', busy && 'animate-pulse')} aria-hidden="true" />
-      <span className="max-sm:hidden">ВОЙТИ</span>
+      <LogIn className={busy ? 'size-4 shrink-0 animate-pulse' : 'size-4 shrink-0'} aria-hidden="true" />
+      <span className="hidden lg:inline">ВОЙТИ</span>
     </button>
   )
 }

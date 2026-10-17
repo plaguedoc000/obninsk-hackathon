@@ -2,8 +2,8 @@
 
 Проект команды. Пока это каркас: страница «Привет, мир» и API с проверкой здоровья.
 
-- Сайт: https://31-77-173-151.sslip.io
-- Документация API: https://31-77-173-151.sslip.io/api/docs
+- Сайт: https://merakadr.ru
+- Документация API: https://merakadr.ru/api/docs
 
 Пуш в `main` автоматически собирает, тестирует и выкатывает сайт.
 
@@ -15,7 +15,7 @@
    npm run setup
    cp .env.example .env
    ```
-3. Запустите: `npm run dev` и откройте http://localhost:5173
+3. Запустите: `npm run dev` и откройте http://localhost:3000
 
 Дальше откройте Claude Code в папке проекта и описывайте задачи словами. Правила для ИИ лежат в [CLAUDE.md](CLAUDE.md).
 
