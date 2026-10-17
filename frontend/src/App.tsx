@@ -4,7 +4,6 @@ import { FLIDA_CALLBACK_PATH } from '@/lib/flida'
 import FlidaCallbackPage from '@/pages/FlidaCallbackPage'
 import HomePage from '@/pages/HomePage'
 import NotFoundPage from '@/pages/NotFoundPage'
-import PitchRedirect from '@/pages/PitchRedirect'
 
 // Новая страница: создайте файл в src/pages и добавьте Route здесь
 export default function App() {
@@ -13,7 +12,6 @@ export default function App() {
       <Routes>
         <Route index element={<HomePage />} />
         <Route path={FLIDA_CALLBACK_PATH} element={<FlidaCallbackPage />} />
-        <Route path="/pitch" element={<PitchRedirect />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
       <Toaster theme="dark" position="top-center" />

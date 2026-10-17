@@ -7,6 +7,10 @@
     <meta name="description" content="Площадь по научным фото с эталоном 1×1 см и сравнение снимков в одном масштабе" />
     <meta name="theme-color" content="#04050f" />
     <title>МераКадр</title>
+    <script>
+      // Презентация лежит в public/pitch; сервер отдаёт её только по полному имени файла, поэтому /pitch и /pitch/ ведём туда сразу, до загрузки приложения
+      if (/^\/pitch\/?$/.test(location.pathname)) location.replace('/pitch/index.html' + location.hash)
+    </script>
   </head>
   <body>
     <div id="root"></div>
