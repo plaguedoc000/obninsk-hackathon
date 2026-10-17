@@ -132,7 +132,7 @@ export default function Editor({ photo, norm, picking, onChange }: Props) {
     onChange(() => ({ segment: seg, marker: segmentQuad(seg), markerSource: 'manual' }))
   }
 
-  // «Линейка» → «Эталон»: протянутая линия становится эталоном указанной длины
+  // «Отрезок»: протянутая линия становится эталоном указанной длины
   function rulerToSegment(mm: number) {
     if (!ruler) return
     if (Math.hypot(ruler.b.x - ruler.a.x, ruler.b.y - ruler.a.y) < 4) {
@@ -142,7 +142,6 @@ export default function Editor({ photo, norm, picking, onChange }: Props) {
     remember()
     setSegment({ a: ruler.a, b: ruler.b, mm })
     setRuler(null)
-    setTool('marker')
   }
 
   function segmentLength(mm: number) {
@@ -162,7 +161,8 @@ export default function Editor({ photo, norm, picking, onChange }: Props) {
       else setDraft([])
     }
     setTool(next)
-    if (next !== 'ruler') setRuler(null)
+    // линия линейки или черновик отрезка не переносятся в другой инструмент
+    setRuler(null)
     if (next !== 'marker') setMarkerDraft([])
   }
 
@@ -192,6 +192,8 @@ export default function Editor({ photo, norm, picking, onChange }: Props) {
       const actions: Record<string, () => void> = {
         e: () => switchTool('marker'),
         у: () => switchTool('marker'),
+        s: () => switchTool('segment'),
+        ы: () => switchTool('segment'),
         a: () => switchTool('area'),
         ф: () => switchTool('area'),
         w: () => switchTool('auto'),

@@ -33,4 +33,4 @@ export type Photo = {
 }
 
 // marker — эталон, area — многоугольник по точкам, auto — область «волшебной палочкой», ruler — линейка
-export type Tool = 'marker' | 'area' | 'auto' | 'ruler'
+export type Tool = 'marker' | 'segment' | 'area' | 'auto' | 'ruler'

@@ -219,7 +219,8 @@ export default function ImageStage({
       e.stopPropagation()
       // нет эталона или он отрезок — щелчки ставят углы нового квадрата
       if (!marker || segment) onMarkerPoint(p)
-    } else if (tool === 'ruler') {
+    } else if (tool === 'ruler' || tool === 'segment') {
+      // «Отрезок» рисуется как линейка, а потом спрашивает длину в мм
       onRuler({ a: p, b: p })
       start(e, { kind: 'ruler', a: p })
     } else {
@@ -372,7 +373,7 @@ export default function ImageStage({
             seg={segment}
             u={u}
             glow={glow}
-            handles={interactive && tool === 'marker'}
+            handles={interactive && tool === 'segment'}
             onGrab={(end, e) => grab(e, { kind: 'segment', end })}
           />
         )}
@@ -509,7 +510,7 @@ export default function ImageStage({
         )}
       </div>
 
-      {ready && ruler && rulerText && Math.hypot(ruler.b.x - ruler.a.x, ruler.b.y - ruler.a.y) > 0 && (
+      {ready && ruler && tool === 'ruler' && rulerText && Math.hypot(ruler.b.x - ruler.a.x, ruler.b.y - ruler.a.y) > 0 && (
         <div
           className="pointer-events-none absolute -translate-x-1/2 -translate-y-[140%] bg-lab-blue px-2 py-1 font-mono text-xs font-semibold whitespace-nowrap text-white shadow-[0_0_14px_rgba(81,112,255,.6)]"
           style={{ left: left + ((ruler.a.x + ruler.b.x) / 2) * s, top: top + ((ruler.a.y + ruler.b.y) / 2) * s }}
@@ -518,21 +519,21 @@ export default function ImageStage({
         </div>
       )}
 
-      {/* «Линейка»: протянутую линию можно сделать эталоном — ввести, сколько в ней мм */}
-      {ready && ruler && !dragging && Math.hypot(ruler.b.x - ruler.a.x, ruler.b.y - ruler.a.y) >= 4 && (
+      {/* «Отрезок»: протянутая линия становится эталоном — ввести, сколько в ней мм */}
+      {ready && ruler && tool === 'segment' && !dragging && Math.hypot(ruler.b.x - ruler.a.x, ruler.b.y - ruler.a.y) >= 4 && (
         <MmForm
           key={`${ruler.a.x},${ruler.a.y},${ruler.b.x},${ruler.b.y}`}
           left={left + ((ruler.a.x + ruler.b.x) / 2) * s}
           top={top + ((ruler.a.y + ruler.b.y) / 2) * s}
-          button="ЭТАЛОН"
-          title="Сделать эталоном: эта линия — столько мм (например, 50 мм по шкале линейки на фото)"
+          button="OK"
+          title="Длина этой линии в мм (например, 50 мм по шкале линейки на фото) — она станет эталоном"
           onSubmit={onRulerToSegment}
         />
       )}
 
-      {/* подпись эталона-отрезка; в «Эталоне» длину можно поправить */}
+      {/* подпись эталона-отрезка; в «Отрезке» длину можно поправить */}
       {ready && segment && !dragging && !ruler && (
-        tool === 'marker' ? (
+        tool === 'segment' ? (
           <MmForm
             key={segment.mm}
             left={left + ((segment.a.x + segment.b.x) / 2) * s}

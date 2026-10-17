@@ -37,7 +37,8 @@ const TONES = {
 }
 
 // Значок инструмента — квадратик 18×18 с рамкой: пунктир, круг, клякса и т. п.
-type Icon = { style: 'dashed' | 'solid'; radius: string; fill?: string }
+// borderWidth — например '0 2px': только боковые засечки, как у значка отрезка |—|
+type Icon = { style: 'dashed' | 'solid'; radius: string; fill?: string; borderWidth?: string }
 
 type RailButtonProps = {
   label: string
@@ -73,7 +74,13 @@ export function RailButton({ label, hotkey, tone, icon, onClick, active, disable
     >
       <span
         className={cn('border-2', half ? 'size-3' : 'size-[18px]')}
-        style={{ borderStyle: icon.style, borderColor: t.color, borderRadius: icon.radius, background: icon.fill ?? 'transparent' }}
+        style={{
+          borderStyle: icon.style,
+          borderColor: t.color,
+          borderRadius: icon.radius,
+          borderWidth: icon.borderWidth,
+          background: icon.fill ?? 'transparent',
+        }}
       />
       <span className="font-mono text-[9px] font-medium tracking-[.04em]">{label}</span>
       <span className={cn('absolute right-1 font-mono font-medium text-lab-text/45', half ? 'top-px text-[7px]' : 'top-[3px] text-[9px]')}>
@@ -103,16 +110,32 @@ const CROSS = 'linear-gradient(45deg,transparent 42%,#E01E3C 42%,#E01E3C 58%,tra
 export function ToolRail({ tool = null, mask, canUndo, canDelete, zoom = 1, disabled, onTool, onUndo, onDelete, onMask, onZoom }: ToolRailProps) {
   return (
     <>
-      <RailButton
-        label="ЭТАЛОН"
-        hotkey="E"
-        tone="blue"
-        icon={{ style: 'dashed', radius: '2px' }}
-        active={tool === 'marker'}
-        disabled={disabled}
-        onClick={() => onTool?.('marker')}
-        title="Эталон: подвиньте уголки синей рамки на углы квадрата 1×1 см. Нет рамки — щёлкните 4 угла квадрата. Нет квадрата — проведите «Линейкой» отрезок известной длины и нажмите «Эталон»"
-      />
+      {/* Эталон — две низкие кнопки: квадрат 1×1 см или отрезок известной длины */}
+      <div className={cn('flex shrink-0 flex-col items-center', disabled && 'opacity-30')}>
+        <span className="pb-0.5 font-mono text-[8px] font-medium tracking-[.12em] text-lab-text/45">ЭТАЛОН</span>
+        <RailButton
+          half
+          label="КВАДРАТ"
+          hotkey="E"
+          tone="blue"
+          icon={{ style: 'dashed', radius: '2px' }}
+          active={tool === 'marker'}
+          disabled={disabled}
+          onClick={() => onTool?.('marker')}
+          title="Эталон-квадрат 1×1 см: подвиньте уголки синей рамки на углы квадрата. Рамки нет — щёлкните 4 угла квадрата (E)"
+        />
+        <RailButton
+          half
+          label="ОТРЕЗОК"
+          hotkey="S"
+          tone="blue"
+          icon={{ style: 'solid', radius: '0', borderWidth: '0 2px', fill: 'linear-gradient(transparent 42%,#5170FF 42%,#5170FF 58%,transparent 58%)' }}
+          active={tool === 'segment'}
+          disabled={disabled}
+          onClick={() => onTool?.('segment')}
+          title="Эталон-отрезок: протяните линию по предмету известной длины (например, по шкале линейки на фото) и введите её длину в мм (S)"
+        />
+      </div>
       {/* «Авто» — низкая кнопка вплотную под «Областью» */}
       <div className="flex shrink-0 flex-col">
         <RailButton
@@ -178,7 +201,7 @@ export function ToolRail({ tool = null, mask, canUndo, canDelete, zoom = 1, disa
         active={tool === 'ruler'}
         disabled={disabled}
         onClick={() => onTool?.('ruler')}
-        title="Линейка: протяните линию — покажет расстояние в сантиметрах. Линию по шкале линейки на фото можно сделать эталоном: введите её длину в мм"
+        title="Линейка: протяните линию — покажет расстояние в сантиметрах (R)"
       />
       <span className="lg:flex-1" />
       <div
