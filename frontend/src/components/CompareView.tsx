@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import Workspace, { StageFrame, StageTitle, ToolRail } from '@/components/Workspace'
 import { fmt } from '@/lib/format'
 import { scaleOf, totalsOf } from '@/lib/measure'
@@ -7,9 +7,10 @@ import { cn } from '@/lib/utils'
 
 type Props = { photos: Photo[] }
 
-const GAP = 20 // между фото по горизонтали и между строками
-const CAPTION = 42 // подпись под фото: площадь и разница с первым
-const MIN_W = 176 // подпись «3 830,2 мм²  +1122%» должна поместиться даже под узким фото
+const GAP = 12 // между фото по горизонтали и между строками
+const PAD = 12 // поле вокруг фото внутри окна сравнения
+const CAPTION = 30 // подпись под фото (24) и отступ до неё (6): площадь и разница с первым — мелко, место отдаём фото
+const MIN_W = 132 // подпись «3 830,2 мм²  +1122%» должна поместиться даже под узким фото
 const MAX_UP = 2 // крупнее чем вдвое фото не растягиваем — станет мыльным
 const EASE = 'duration-900 ease-[cubic-bezier(.6,0,.2,1)]'
 
@@ -70,8 +71,8 @@ export default function CompareView({ photos }: Props) {
   }, [])
 
   const items = photos.map((p) => ({ p, ppm: scaleOf(p)!.ppm }))
-  const cw = box.w - 32
-  const ch = box.h - 32
+  const cw = box.w - 2 * PAD
+  const ch = box.h - 2 * PAD
   // в «Одном масштабе» размеры в мм и k — пикселей экрана на 1 мм; «Как снято» — в пикселях фото
   const sizes = items.map(({ p, ppm }) => (norm ? { w: p.width / ppm, h: p.height / ppm } : { w: p.width, h: p.height }))
   const maxK = norm ? MAX_UP * Math.min(...items.map((i) => i.ppm)) : MAX_UP
@@ -79,6 +80,21 @@ export default function CompareView({ photos }: Props) {
   const cm = 10 * k
   // клетка сетки — 1 см; если она слишком мелкая, то 5 см
   const cell = norm && k ? (cm >= 12 ? cm : cm * 5) : 24
+  const scaleShown = norm && items.length > 0 && k > 0
+
+  // влезает ли подпись масштаба целиком справа от кнопок: проверяем при каждом изменении ширины окна и длины линейки
+  const capRef = useRef<HTMLDivElement>(null)
+  const [capFits, setCapFits] = useState(true)
+  const cmRounded = Math.round(cm)
+  useLayoutEffect(() => {
+    const el = capRef.current
+    if (!el) return
+    const check = () => setCapFits(el.scrollWidth <= el.clientWidth + 1)
+    check()
+    const ro = new ResizeObserver(check)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [scaleShown, cmRounded])
 
   // площадь каждого фото и разница с первым («база»)
   const areas = items.map(({ p }) => {
@@ -104,8 +120,46 @@ export default function CompareView({ photos }: Props) {
       <StageTitle name={`Масштабирование · выбрано ${photos.length}`} />
       {/* окно сравнения занимает всё место до низа экрана */}
       <StageFrame className="h-[80svh] lg:h-auto lg:min-h-0 lg:flex-1">
-        <div className="absolute inset-0 z-[1] flex flex-col gap-3.5 bg-[#070918] px-[22px] py-[18px]">
-          <div className="flex h-9 shrink-0 items-center font-display text-[15px] font-medium tracking-[.12em]">СРАВНЕНИЕ ПО МАСШТАБУ</div>
+        <div className="absolute inset-0 z-[1] flex flex-col gap-3 bg-[#070918] px-3 py-3 lg:gap-3.5 lg:px-[22px] lg:py-[18px]">
+          {/* заголовок, переключатель и масштаб — одной строкой сверху, чтобы фото досталось больше места.
+              Строка никогда не переносится, иначе кнопки прыгали бы при переключении: на узком компьютере подпись масштаба
+              прячется, если не влезает целиком; на телефоне кнопки всегда строкой ниже заголовка */}
+          <div className="flex shrink-0 flex-col items-start gap-2 lg:flex-row lg:items-center lg:gap-4 xl:gap-[22px]">
+            <div className="flex h-7 shrink-0 items-center font-display text-sm font-medium tracking-[.12em] whitespace-nowrap xl:text-[15px]">СРАВНЕНИЕ ПО МАСШТАБУ</div>
+            {/* переключатель сразу справа от заголовка, за ним — сколько пикселей в 1 см (только в «Одном масштабе») */}
+            <div className="flex max-w-full min-w-0 flex-1 items-center gap-3 lg:gap-[18px]">
+              <div className="flex shrink-0 border border-lab-sky/45 font-mono text-[10px] font-semibold tracking-[.1em]">
+                <button
+                  type="button"
+                  onClick={() => setNorm(false)}
+                  aria-pressed={!norm}
+                  className={cn('flex h-7 items-center px-2.5', norm ? 'text-lab-text/70 hover:text-white' : 'bg-lab-blue text-white')}
+                >
+                  КАК СНЯТО
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNorm(true)}
+                  aria-pressed={norm}
+                  className={cn('flex h-7 items-center px-2.5', norm ? 'bg-lab-blue text-white' : 'text-lab-text/70 hover:text-white')}
+                >
+                  ОДИН МАСШТАБ
+                </button>
+              </div>
+              {/* подпись последняя в строке: когда её нет («Как снято» или ничего не выбрано), кнопки остаются на месте.
+                  Не влезает целиком — не показываем совсем, обрубок «1 см» хуже, чем ничего */}
+              {scaleShown && (
+                <div ref={capRef} className="flex h-7 min-w-0 flex-1 items-center overflow-hidden">
+                  <div
+                    aria-hidden={!capFits}
+                    className={cn('flex shrink-0 items-center gap-2.5 font-mono text-xs font-medium whitespace-nowrap text-lab-text/75', !capFits && 'invisible')}
+                  >
+                    <div className={cn('h-2 shrink-0 border-2 border-t-0 border-lab-sky transition-[width]', EASE)} style={{ width: cm }} />1 см = {Math.round(cm)} px
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
 
           <div
             ref={boxRef}
@@ -117,9 +171,9 @@ export default function CompareView({ photos }: Props) {
             }}
           >
             {cards.length ? (
-              <div className="flex min-h-full flex-wrap content-center items-end justify-center gap-5 p-4">
+              <div className="flex min-h-full flex-wrap content-center items-end justify-center" style={{ gap: GAP, padding: PAD }}>
                 {cards.map((c) => (
-                  <div key={c.p.id} className="flex flex-col items-center gap-2.5" style={{ width: Math.max(c.w, MIN_W) }}>
+                  <div key={c.p.id} className="flex flex-col items-center gap-1.5" style={{ width: Math.max(c.w, MIN_W) }}>
                     <div
                       className={cn('relative overflow-hidden shadow-[0_12px_40px_rgba(0,0,0,.6)] outline outline-lab-sky/40 transition-[width,height]', EASE)}
                       style={{ width: c.w, height: c.h }}
@@ -176,8 +230,8 @@ export default function CompareView({ photos }: Props) {
                         {c.n + 1}
                       </span>
                     </div>
-                    <div className="flex w-full items-baseline justify-between gap-2 bg-lab-bg/85 px-2 py-1.5 font-mono text-[13px] font-medium whitespace-nowrap">
-                      <span className="truncate text-base text-white">{c.area !== null ? `${fmt(c.area, 1)} мм²` : 'нет контура'}</span>
+                    <div className="flex h-6 w-full items-center justify-between gap-2 bg-lab-bg/85 px-1.5 font-mono text-[11px] font-medium whitespace-nowrap">
+                      <span className="truncate text-xs text-white">{c.area !== null ? `${fmt(c.area, 1)} мм²` : 'нет контура'}</span>
                       <span style={{ color: c.deltaColor }}>{c.delta}</span>
                     </div>
                   </div>
@@ -189,36 +243,6 @@ export default function CompareView({ photos }: Props) {
                   <span className="lg:hidden">Отметьте фото в ленте внизу</span>
                   <span className="hidden lg:inline">Отметьте фото справа</span> — они появятся здесь в одном масштабе. Для сравнения нужно два фото или больше.
                 </span>
-              </div>
-            )}
-          </div>
-
-          <div className="flex shrink-0 flex-wrap items-center gap-x-[22px] gap-y-2">
-            <div className="flex border border-lab-sky/45 font-mono text-[11px] font-semibold tracking-[.1em]">
-              <button
-                type="button"
-                onClick={() => setNorm(false)}
-                aria-pressed={!norm}
-                className={cn('flex h-9 items-center px-3.5', norm ? 'text-lab-text/70 hover:text-white' : 'bg-lab-blue text-white')}
-              >
-                КАК СНЯТО
-              </button>
-              <button
-                type="button"
-                onClick={() => setNorm(true)}
-                aria-pressed={norm}
-                className={cn('flex h-9 items-center px-3.5', norm ? 'bg-lab-blue text-white' : 'text-lab-text/70 hover:text-white')}
-              >
-                ОДИН МАСШТАБ
-              </button>
-            </div>
-            {/* пока ничего не выбрано, подписи масштаба нет — нечего мерить */}
-            {cards.length > 0 && (
-              <div className="flex items-center gap-3 font-mono text-xs font-medium text-lab-text/75">
-                {norm && k > 0 && <div className={cn('h-2 shrink-0 border-2 border-t-0 border-lab-sky transition-[width]', EASE)} style={{ width: cm }} />}
-                {norm
-                  ? `1 см = ${Math.round(cm)} px`
-                  : 'Снимки как сняты — эталон на каждом разного размера'}
               </div>
             )}
           </div>
