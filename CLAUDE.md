@@ -61,6 +61,7 @@
 
 ## Сервер
 
-- Сайт: https://31-77-173-151.sslip.io (запасной адрес http://31.77.173.151), документация API: `/api/docs`
+- Сайт: https://merakadr.ru (запасные адреса https://31-77-173-151.sslip.io и http://31.77.173.151), документация API: `/api/docs`
+- Домены в Caddy: `31-77-173-151.sslip.io, merakadr.ru, www.merakadr.ru` — при повторном запуске `deploy/setup-server.sh` передавай их все
 - Ключи ИИ на сервере: `/srv/app/.env`, после правки `systemctl restart app-api`
 - Логи бэкенда: `ssh root@31.77.173.151 journalctl -u app-api -n 100`
