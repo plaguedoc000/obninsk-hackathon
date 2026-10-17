@@ -42,8 +42,13 @@ def decode_upload(data: bytes) -> tuple[np.ndarray, dict]:
         im = Image.open(io.BytesIO(data))
         fmt = (im.format or "").upper()
         exif_orientation = None
+        focal35 = None
         try:
-            exif_orientation = im.getexif().get(0x0112)
+            exif = im.getexif()
+            exif_orientation = exif.get(0x0112)
+            # фокусное в пересчёте на 35 мм: по нему оцениваем, насколько опасен наклон камеры
+            f = exif.get_ifd(0x8769).get(0xA405)
+            focal35 = float(f) if f and 5 <= float(f) <= 2000 else None
         except Exception:
             pass
         im = ImageOps.exif_transpose(im)
@@ -57,6 +62,7 @@ def decode_upload(data: bytes) -> tuple[np.ndarray, dict]:
     info = {
         "format": fmt,
         "exif_orientation": exif_orientation,
+        "focal35_mm": focal35,
         "rotated_by_exif": bool(exif_orientation and exif_orientation != 1),
     }
     return bgr, info

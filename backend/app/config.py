@@ -43,6 +43,12 @@ STRONG_TILT_DEG = _env_float("ONESCALE_STRONG_TILT_DEG", 12.0)       # заме�
 NOT_SQUARE_RATIO = _env_float("ONESCALE_NOT_SQUARE_RATIO", 0.06)     # эталон не квадратный
 FAR_FROM_MARKER_SIDES = _env_float("ONESCALE_FAR_SIDES", 12.0)       # объект далеко от эталона
 
+# Фокусное расстояние в пересчёте на 35 мм, если в фото нет EXIF: основная камера телефона.
+# По нему восстанавливается наклон камеры над столом (pose.py)
+DEFAULT_FOCAL35_MM = _env_float("ONESCALE_DEFAULT_FOCAL35_MM", 26.0)
+POSE_STRONG_TILT_DEG = _env_float("ONESCALE_POSE_STRONG_TILT_DEG", 20.0)  # с какого наклона предупреждать
+PERSPECTIVE_WARN_PCT = _env_float("ONESCALE_PERSPECTIVE_WARN_PCT", 4.0)   # погрешность перспективы, с которой предупреждать
+
 # Поиск эталона: максимальная сторона уменьшенной копии
 DETECT_MAX_SIDE = _env_int("ONESCALE_DETECT_MAX_SIDE", 1600)
 DETECT_MAX_CANDIDATES = _env_int("ONESCALE_DETECT_MAX_CANDIDATES", 5)

@@ -11,10 +11,11 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 
 from . import config
-from .detection import detect_marker
+from .detection import detect_marker, to_gray
 from .errors import AppError, bad_input, not_found
 from .geometry import apply_transform, build_calibration, measure_polygon, shape_to_polygon
 from .imaging import encode
+from .plane import find_sheet
 from .standardize import annotate, draw_caption, draw_outlines, fmt_num, plan_output, warp
 from .storage import Store, new_id, now_iso
 
@@ -115,16 +116,19 @@ def run_detection(store: Store, image_id: str, polarity: str = "dark", marker_si
     if auto_calibrate and det["found"]:
         size = marker_size_mm or (meta.get("calibration") or {}).get("marker_size_mm") or config.DEFAULT_MARKER_MM
         meta["calibration"] = _calibrate(meta, det["best"]["corners_px"], size, perspective, "auto",
-                                         det["best"]["sigma_px"], candidate_index=0)
+                                         det["best"]["sigma_px"], candidate_index=0, gray=to_gray(bgr))
     store.clear_cache(image_id)
     store.save(meta)
     return meta
 
 
 def _calibrate(meta: dict, corners, size_mm: float, perspective: str, method: str, sigma: float | None,
-               candidate_index: int | None = None) -> dict:
+               candidate_index: int | None = None, gray=None) -> dict:
+    # лист бумаги под эталоном целиком в кадре — перспектива по его краям (см. plane.py)
+    plane = find_sheet(gray, corners, size_mm) if gray is not None and perspective != "off" else None
     cal = build_calibration(corners, marker_size_mm=size_mm, perspective=perspective, method=method,
-                            sigma_px=sigma, image_size=(meta["width"], meta["height"]))
+                            sigma_px=sigma, image_size=(meta["width"], meta["height"]), plane=plane,
+                            focal35_mm=meta.get("focal35_mm"))
     cal["candidate_index"] = candidate_index
     cal["updated_at"] = now_iso()
     _check_inside(meta, cal["corners_px"], "corners")
@@ -146,8 +150,9 @@ def set_calibration(store: Store, image_id: str, corners=None, candidate_index: 
     old = meta.get("calibration") or {}
     size = marker_size_mm or old.get("marker_size_mm") or config.DEFAULT_MARKER_MM
     persp = perspective or old.get("perspective_mode") or "auto"
+    gray = to_gray(store.load_bgr(image_id))
     if corners is not None:
-        cal = _calibrate(meta, corners, size, persp, "manual", None)
+        cal = _calibrate(meta, corners, size, persp, "manual", None, gray=gray)
     elif candidate_index is not None:
         det = meta.get("detection")
         if not det or not det.get("candidates"):
@@ -155,9 +160,10 @@ def set_calibration(store: Store, image_id: str, corners=None, candidate_index: 
         if not (0 <= candidate_index < len(det["candidates"])):
             raise bad_input("BAD_CANDIDATE", f"candidate_index: от 0 до {len(det['candidates']) - 1}")
         c = det["candidates"][candidate_index]
-        cal = _calibrate(meta, c["corners_px"], size, persp, "auto", c["sigma_px"], candidate_index)
+        cal = _calibrate(meta, c["corners_px"], size, persp, "auto", c["sigma_px"], candidate_index, gray=gray)
     elif old:
-        cal = _calibrate(meta, old["corners_px"], size, persp, old["method"], old.get("sigma_px"), old.get("candidate_index"))
+        cal = _calibrate(meta, old["corners_px"], size, persp, old["method"], old.get("sigma_px"), old.get("candidate_index"),
+                         gray=gray)
     else:
         raise bad_input("NO_CORNERS", "Передайте corners (4 угла) или candidate_index")
     meta["calibration"] = cal

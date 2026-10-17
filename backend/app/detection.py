@@ -42,12 +42,56 @@ def _bilinear(img: np.ndarray, x: np.ndarray, y: np.ndarray) -> np.ndarray:
     return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy
 
 
-def _approx_quad(contour: np.ndarray) -> np.ndarray | None:
+def _restore_corner(poly: np.ndarray) -> np.ndarray | None:
+    """Угол эталона засвечен бликом или срезан: на выпуклой оболочке контура — 5–6-угольник,
+    лишние короткие стороны стоят на месте угла. Перебираем, какие 4 стороны настоящие: продолжаем их
+    до пересечения и берём четырёхугольник, ближе всего к квадрату, в котором умещается весь контур."""
+    from itertools import combinations
+
+    n = len(poly)
+    best, best_dev = None, 25.0  # углы — не дальше 25° от прямого
+    for keep in combinations(range(n), 4):
+        lines = [(poly[i], poly[(i + 1) % n] - poly[i]) for i in keep]
+        quad = []
+        for k in range(4):
+            (p, d), (q, e) = lines[k - 1], lines[k]
+            den = d[0] * e[1] - d[1] * e[0]
+            if abs(den) < 1e-9:
+                break
+            t = ((q[0] - p[0]) * e[1] - (q[1] - p[1]) * e[0]) / den
+            quad.append(p + t * d)
+        if len(quad) < 4:
+            continue
+        quad = np.array(quad)
+        qc = quad.astype(np.float32).reshape(-1, 1, 2)
+        if not cv2.isContourConvex(qc):
+            continue
+        # весь контур внутри (с запасом в 1,5 пикс.) и достроенный угол не улетел далеко
+        if any(cv2.pointPolygonTest(qc, (float(x), float(y)), True) < -1.5 for x, y in poly):
+            continue
+        if polygon_area(quad) > 1.6 * polygon_area(poly):
+            continue
+        dev = float(np.max(np.abs(quad_angles(order_corners(quad)) - 90)))
+        if dev < best_dev:
+            best, best_dev = quad, dev
+    return best
+
+
+def _approx_quad(contour: np.ndarray) -> tuple[np.ndarray, bool] | None:
+    """Четырёхугольник по контуру. Второе значение — угол был достроен (засвечен или закрыт)."""
     peri = cv2.arcLength(contour, True)
+    # сначала мелкий допуск по выпуклой оболочке: выемка от блика становится одной короткой стороной
+    # на месте угла, а не прячется в «кривой» квадрат
+    hull = cv2.convexHull(contour)
+    ap = cv2.approxPolyDP(hull, 0.025 * cv2.arcLength(hull, True), True).reshape(-1, 2).astype(np.float64)
+    if len(ap) in (5, 6):
+        q = _restore_corner(ap)
+        if q is not None:
+            return q, True
     for eps in (0.04, 0.025, 0.06, 0.08):
         ap = cv2.approxPolyDP(contour, eps * peri, True)
         if len(ap) == 4 and cv2.isContourConvex(ap):
-            return ap.reshape(4, 2).astype(np.float64)
+            return ap.reshape(4, 2).astype(np.float64), False
     return None
 
 
@@ -75,9 +119,22 @@ def _region_stats(gray: np.ndarray, quad: np.ndarray, side: float) -> tuple[floa
     m_out = cv2.subtract(m_out, m_gap)
     if cv2.countNonZero(m_in) < 4 or cv2.countNonZero(m_out) < 4:
         return 0.0, 0.0, 0.0, 0.0
-    mi, si = cv2.meanStdDev(roi, mask=m_in)
-    mo, so = cv2.meanStdDev(roi, mask=m_out)
-    return float(mi[0, 0]), float(si[0, 0]), float(mo[0, 0]), float(so[0, 0])
+    # уровни — медианы, разброс — по межквартильному размаху: блик в углу или пылинка их не раздувают
+    def robust(mask):
+        v = roi[mask > 0]
+        q25, q50, q75 = np.percentile(v, (25, 50, 75))
+        return float(q50), float(q75 - q25) / 1.349
+
+    mi, si = robust(m_in)
+    mo, so = robust(m_out)
+    return mi, si, mo, so
+
+
+MAX_MARKER_RATIO = 1 / 3
+
+
+def _lin(v: float) -> float:
+    return float(LINEAR[int(np.clip(round(v), 0, 255))])
 
 
 def _find_candidates(gray_small: np.ndarray, dark: bool) -> list[dict]:
@@ -101,12 +158,14 @@ def _find_candidates(gray_small: np.ndarray, dark: bool) -> list[dict]:
             a = cv2.contourArea(cnt)
             if a < min_area or a > max_area:
                 continue
-            q = _approx_quad(cnt)
-            if q is None:
+            found = _approx_quad(cnt)
+            if found is None:
                 continue
+            q, restored = found
             q = order_corners(q)
             qa = polygon_area(q)
-            if qa <= 0 or not (0.8 <= a / qa <= 1.2):
+            # у достроенного угла контур меньше четырёхугольника: часть эталона засвечена
+            if qa <= 0 or not ((0.7 if restored else 0.8) <= a / qa <= 1.2):
                 continue
             sides = quad_sides(q)
             ratio = sides.min() / sides.max()
@@ -120,6 +179,11 @@ def _find_candidates(gray_small: np.ndarray, dark: bool) -> list[dict]:
             contrast = mo - mi
             if contrast < 25:
                 continue
+            # эталон — чёрный: в линейном свете он хотя бы втрое темнее фона (настоящий — в 10–25 раз).
+            # Жёлтая или серая наклейка того же размера темнее фона лишь в 1,5–2 раза
+            dim, bright = (mi, mo) if dark else (255 - mo, 255 - mi)
+            if _lin(dim) > MAX_MARKER_RATIO * _lin(bright):
+                continue
             uniform = si / max(contrast, 1e-6)
             if uniform > 0.45:
                 continue
@@ -130,7 +194,8 @@ def _find_candidates(gray_small: np.ndarray, dark: bool) -> list[dict]:
                 * (1 - 0.8 * uniform)
                 * (1 - 0.5 * min(so / max(contrast, 1e-6), 1.0))
             )
-            out.append({"quad": q, "score": float(score), "side": side, "contrast": float(contrast)})
+            out.append({"quad": q, "score": float(score) * (0.9 if restored else 1.0), "side": side,
+                        "contrast": float(contrast), "restored": restored})
     # убираем дубли (один и тот же квадрат, найденный разными порогами)
     out.sort(key=lambda d: -d["score"])
     kept: list[dict] = []
@@ -155,14 +220,45 @@ def _line_intersection(l1, l2) -> np.ndarray | None:
     return np.array([x1 + t * vx1, y1 + t * vy1])
 
 
+# Яркость JPEG (гамма sRGB) -> линейный свет, в тех же 0..255. Размытие объектива и смаз происходят
+# в линейном свете: край там, где яркость ровно посередине между чёрным и фоном именно в линейной шкале.
+# В гамма-значениях середина сдвинута в тёмную сторону — размытый эталон находился меньше настоящего
+_v = np.arange(256) / 255.0
+LINEAR = (np.where(_v <= 0.04045, _v / 12.92, ((_v + 0.055) / 1.055) ** 2.4) * 255.0).astype(np.float32)
+
+
+def _levels(g: np.ndarray, quad: np.ndarray, side: float) -> tuple[float, float]:
+    """Уровень внутри эталона и фона вокруг — медианы: тонкие линии сетки и пылинки их не сдвигают."""
+    h, w = g.shape
+    c = quad.mean(axis=0)
+    pad = int(side * 0.6) + 4
+    x0 = max(int(quad[:, 0].min()) - pad, 0)
+    y0 = max(int(quad[:, 1].min()) - pad, 0)
+    x1 = min(int(quad[:, 0].max()) + pad, w)
+    y1 = min(int(quad[:, 1].max()) + pad, h)
+    roi = g[y0:y1, x0:x1]
+
+    def mask(f_out, f_in=None):
+        m = np.zeros(roi.shape, np.uint8)
+        cv2.fillConvexPoly(m, np.round(c + (quad - c) * f_out - [x0, y0]).astype(np.int32), 255)
+        if f_in:
+            cv2.fillConvexPoly(m, np.round(c + (quad - c) * f_in - [x0, y0]).astype(np.int32), 0)
+        return m > 0
+
+    inner, ring = roi[mask(0.75)], roi[mask(1.6, 1.2)]
+    if inner.size < 4 or ring.size < 4:
+        return 0.0, 0.0
+    return float(np.median(inner)), float(np.median(ring))
+
+
 def refine_corners(gray_full: np.ndarray, quad: np.ndarray, dark: bool = True) -> tuple[np.ndarray, float, bool]:
     """Уточнение углов до долей пикселя. Возвращает (углы, оценка ошибки в пикс., удалось ли)."""
-    g = gray_full.astype(np.float32)
+    g = LINEAR[gray_full] if gray_full.dtype == np.uint8 else gray_full.astype(np.float32)
     if not dark:
         g = 255.0 - g
     side = math.sqrt(polygon_area(quad))
-    mi, _, mo, _ = _region_stats(g, quad, side)
-    if mo - mi < 10:
+    mi, mo = _levels(g, quad, side)
+    if mo - mi < 6:
         return quad, 1.0, False
     thr = (mi + mo) / 2.0
     gs = cv2.GaussianBlur(g, (0, 0), 0.8)
@@ -188,9 +284,13 @@ def refine_corners(gray_full: np.ndarray, quad: np.ndarray, dark: bool = True) -
         xs = base[:, 0:1] + offs[None, :] * n[0]
         ys = base[:, 1:2] + offs[None, :] * n[1]
         prof = _bilinear(gs, xs, ys)  # (k, m): тёмное внутри -> светлое снаружи
+        # фон у каждой стороны свой (свет сбоку, тень): медиана полосы 0,2–0,5 стороны эталона снаружи
+        far = np.linspace(0.2, 0.5, 7) * side
+        bg = float(np.median(_bilinear(g, base[:, 0:1] + far[None, :] * n[0], base[:, 1:2] + far[None, :] * n[1])))
+        side_thr = (mi + bg) / 2.0 if bg - mi >= 6 else thr
         pts = []
         for row, b in zip(prof, base):
-            s = row - thr
+            s = row - side_thr
             idx = np.where((s[:-1] < 0) & (s[1:] >= 0))[0]
             if len(idx) == 0:
                 continue
@@ -252,6 +352,8 @@ def detect_marker(bgr: np.ndarray, polarity: str = "dark", max_candidates: int |
     for c in cands:
         q_full = c["quad"] / scale
         corners, sigma, refined = refine_corners(gray, q_full, dark=c["dark"])
+        if c.get("restored"):
+            sigma = max(sigma, 1.0)  # угол достроен по продолжению сторон — он заведомо менее точен
         corners = order_corners(corners)
         sides = quad_sides(corners)
         results.append({
@@ -264,6 +366,7 @@ def detect_marker(bgr: np.ndarray, polarity: str = "dark", max_candidates: int |
             "subpixel_refined": refined,
             "sigma_px": round(sigma, 3),
             "polarity": "dark" if c["dark"] else "light",
+            "corner_restored": bool(c.get("restored")),
         })
 
     warnings = []
@@ -276,6 +379,12 @@ def detect_marker(bgr: np.ndarray, polarity: str = "dark", max_candidates: int |
         warnings.append({
             "code": "MULTIPLE_CANDIDATES",
             "message": "Найдено несколько похожих квадратов. Проверьте, что выбран именно эталон.",
+        })
+    elif results[0]["corner_restored"]:
+        warnings.append({
+            "code": "MARKER_CORNER_RESTORED",
+            "message": "Угол эталона засвечен бликом или закрыт — он достроен по продолжению сторон. "
+                       "Проверьте рамку; точнее будет переснять без блика.",
         })
     elif results[0]["confidence"] < 0.35:
         warnings.append({

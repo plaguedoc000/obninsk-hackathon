@@ -90,6 +90,7 @@ class Store:
             "size_bytes": len(data),
             "format": info["format"],
             "rotated_by_exif": info["rotated_by_exif"],
+            "focal35_mm": info.get("focal35_mm"),
             "created_at": now_iso(),
             "group": group or None,
             "note": None,

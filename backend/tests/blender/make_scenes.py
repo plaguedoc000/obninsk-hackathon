@@ -450,6 +450,17 @@ def plane_homography(cam):
     return np.append(h, 1).reshape(3, 3)
 
 
+def add_exif_focal(path: Path, focal35: float):
+    """Вставляет в JPEG EXIF с фокусным в пересчёте на 35 мм (FocalLengthIn35mmFilm) — как у фото с телефона."""
+    import struct
+    ifd0 = struct.pack("<H", 1) + struct.pack("<HHII", 0x8769, 4, 1, 8 + 18) + struct.pack("<I", 0)  # ссылка на Exif IFD
+    exif_ifd = struct.pack("<H", 1) + struct.pack("<HHIHH", 0xA405, 3, 1, int(round(focal35)), 0) + struct.pack("<I", 0)
+    payload = b"Exif\x00\x00" + b"II*\x00" + struct.pack("<I", 8) + ifd0 + exif_ifd
+    data = path.read_bytes()
+    assert data[:2] == b"\xff\xd8"
+    path.write_bytes(data[:2] + b"\xff\xe1" + struct.pack(">H", len(payload) + 2) + payload + data[2:])
+
+
 def r3(a):
     return np.round(np.asarray(a, float), 3).tolist()
 
@@ -462,7 +473,8 @@ INK = (24, 24, 26)  # тонер лазерного принтера
 class Scene:
     """Собирает сцену и запоминает, что где лежит."""
 
-    def __init__(self, name, title, tags=(), size=(2000, 1500), samples=64, denoise=True, quality=90, ev=0.0, meter_pct=97):
+    def __init__(self, name, title, tags=(), size=(2000, 1500), samples=64, denoise=True, quality=90, ev=0.0, meter_pct=97,
+                 exif_focal35=None):
         bpy.ops.wm.read_factory_settings(use_empty=True)
         sc = bpy.context.scene
         sc.render.engine = "CYCLES"
@@ -492,6 +504,7 @@ class Scene:
         sc.frame_set(1)
         self.name, self.title, self.tags = name, title, list(tags)
         self.ev, self.meter_pct = ev, meter_pct
+        self.exif_focal35 = exif_focal35
         self.marker = None
         self.marker_polarity = "dark"
         self.samples: list[dict] = []
@@ -555,6 +568,7 @@ class Scene:
                 "lens_mm": self.cam.data.lens,
             },
             "samples": [],
+            "exif_focal35_mm": self.exif_focal35,
         }
         if self.marker:
             ob, pts = self.marker
@@ -584,6 +598,8 @@ class Scene:
         out.parent.mkdir(parents=True, exist_ok=True)
         sc.render.filepath = str(out)
         bpy.ops.render.render(write_still=True)
+        if self.exif_focal35 and not preview:
+            add_exif_focal(out, self.exif_focal35)
         return entry
 
 
@@ -914,10 +930,120 @@ def s23_card_dark_table():
     return s
 
 
+
+
+# ---------------------------------------------------------------- контрольные сцены
+# Добавлены после настройки алгоритмов и проверены «вслепую»: другие объективы, EXIF, эталон в центре,
+# поднос не формата A4, лист темнее стола. Нужны, чтобы убедиться, что точность — не подгонка под сцены выше
+
+def s24():
+    s = Scene("24_lens24_noexif", "Объектив 24 мм без EXIF (сайт думает, что 26 мм), наклон 15°", ["holdout", "perspective"])
+    s.table(wood("Дерево"))
+    s.sheet(rot=8)
+    s.add_marker((-70, 45), 21)
+    s.sample("Лист", leaf(85, 42, teeth=8, tooth=0.06), mottled("Зелень", (58, 110, 40), (92, 145, 55)), (55, -40), 35)
+    s.sample("Клякса", blob(15, seed=31), mottled("Охра", (190, 140, 50), (205, 155, 70)), (-20, -55))
+    world("forest.exr", 0.7, 30)
+    lamp("AREA", (0.1, -0.2, 0.9), energy=50, size=0.6)
+    s.cam = camera((-5, -5), 0.19, tilt=15, azim=-120, lens=24)
+    return s
+
+
+def s25():
+    s = Scene("25_lens28_exif", "Объектив 28 мм, фокусное в EXIF, наклон 9°", ["holdout", "perspective", "exif"], exif_focal35=28)
+    s.table(wood("Дерево"))
+    s.sheet(rot=-5)
+    s.add_marker((80, 55), -14)
+    s.sample("Звезда", star(22, 10, 5), mottled("Красный", (170, 35, 40), (190, 50, 55)), (-60, -45), 12)
+    s.sample("Эллипс", ellipse(24, 14), mottled("Синий", (40, 80, 150), (55, 95, 170)), (-80, 30), -25)
+    world("city.exr", 0.6, 200)
+    lamp("AREA", (-0.1, 0.1, 0.9), energy=55, size=0.6)
+    s.cam = camera((0, 0), 0.24, tilt=9, azim=-60, lens=28)
+    return s
+
+
+def s26():
+    s = Scene("26_tele52_exif", "Телеобъектив 52 мм издалека, фокусное в EXIF, наклон 12°", ["holdout", "perspective", "exif"],
+              exif_focal35=52)
+    s.table(wood("Дерево"))
+    s.sheet()
+    s.add_marker((-75, 50), 33)
+    s.sample("Лист", leaf(90, 44, teeth=9, tooth=0.06), mottled("Зелень", (58, 110, 40), (92, 145, 55)), (40, -20), -10)
+    s.sample("Подкова", c_shape(18, 10), mottled("Фиолет", (95, 60, 120), (120, 80, 140)), (-60, -55), 40, seed=(-14.0, 0.0))
+    world("interior.exr", 0.6)
+    lamp("AREA", (0.05, -0.1, 1.2), energy=80, size=0.7)
+    s.cam = camera((-10, 0), 0.42, tilt=12, azim=-100, lens=52)
+    return s
+
+
+def s27():
+    s = Scene("27_tele52_noexif", "Телеобъектив 52 мм без EXIF (сайт думает, что 26 мм), наклон 10°", ["holdout", "perspective"])
+    s.table(wood("Дерево"))
+    s.sheet(rot=12)
+    s.add_marker((-55, 35), 5)
+    s.sample("Лист", leaf(80, 40, teeth=7, tooth=0.05), mottled("Зелень", (65, 118, 44), (95, 148, 58)), (45, -30), 60)
+    world("courtyard.exr", 0.8, 90)
+    lamp("AREA", (0.1, -0.1, 1.1), energy=70, size=0.7)
+    s.cam = camera((-5, 0), 0.36, tilt=10, azim=-75, lens=52)
+    return s
+
+
+def s28():
+    s = Scene("28_center_marker", "Эталон в центре кадра, образцы по углам, наклон 6°", ["holdout", "ambiguous"])
+    s.table(wood("Дерево"))
+    s.sheet()
+    s.add_marker((0, 0), 30)
+    s.sample("Лист", leaf(70, 35, teeth=7, tooth=0.05), mottled("Зелень", (58, 110, 40), (92, 145, 55)), (-90, 55), 15)
+    s.sample("Клякса", blob(16, seed=41), mottled("Синий", (40, 70, 140), (55, 90, 160)), (95, -60))
+    world("interior.exr", 0.6)
+    lamp("AREA", (0.05, -0.1, 0.9), energy=60, size=0.6)
+    s.cam = camera((0, 0), 0.25, tilt=6, azim=-140)
+    return s
+
+
+def s29():
+    s = Scene("29_dark_table_tilt18", "Тёмный стол без бумаги, эталон на белой карточке, наклон 18°", ["holdout", "perspective"])
+    s.table(wood("Тёмное дерево", dark=True))
+    flat("Карточка", rect(30, 30), paper("Карточка"), (-60, 40), -8, z=Z_PAPER)
+    s.add_marker((-60, 40), -8)
+    s.sample("Лоскут 40×30", rect(40, 30), mottled("Светлый", (225, 215, 195), (235, 225, 205), 900), (50, -30), 20)
+    s.sample("Лист", leaf(80, 40, teeth=8, tooth=0.06), mottled("Зелень", (95, 160, 60), (120, 185, 75)), (-30, -50), -35)
+    world("sunrise.exr", 0.7, 60)
+    lamp("AREA", (0.1, -0.1, 0.9), energy=55, size=0.6)
+    s.cam = camera((-5, -5), 0.25, tilt=18, azim=-110)
+    return s
+
+
+def s30():
+    s = Scene("30_white_tray", "Белый поднос 320×230 мм (не A4) целиком в кадре, наклон 20°", ["holdout", "perspective", "sheet"])
+    s.table(wood("Дерево"))
+    flat("Поднос", rect(320, 230), paper("Поднос", srgb=(236, 238, 240), rough=0.45), (0, 0), 0, z=Z_PAPER)
+    s.add_marker((-100, 70), 17)
+    s.sample("Лист", leaf(90, 44, teeth=9, tooth=0.06), mottled("Зелень", (58, 110, 40), (92, 145, 55)), (60, -40), 25)
+    s.sample("Звезда", star(20, 9, 6), mottled("Оранж", (215, 120, 30), (230, 140, 50)), (-40, -60))
+    world("interior.exr", 0.6, 300)
+    lamp("AREA", (0.05, -0.1, 0.9), energy=60, size=0.6)
+    s.cam = camera((0, 0), 0.36, tilt=20, azim=-70)
+    return s
+
+
+def s31():
+    s = Scene("31_blue_paper_white_table", "Голубой лист A4 на белом столе (лист темнее стола), наклон 14°", ["holdout", "perspective", "sheet"])
+    s.table(matte("Белый стол", (238, 238, 236), rough=0.5))
+    s.sheet(paper("Голубая бумага", srgb=(150, 190, 225)), rot=-7)
+    s.add_marker((-90, 50), 9)
+    s.sample("Лист", leaf(85, 42, teeth=8, tooth=0.06), mottled("Зелень", (58, 110, 40), (92, 145, 55)), (40, -25), 15)
+    s.sample("Клякса", blob(17, seed=51), mottled("Красный", (170, 35, 40), (190, 50, 55)), (-55, -55))
+    world("city.exr", 0.5)
+    lamp("AREA", (0.05, -0.1, 0.9), energy=60, size=0.6)
+    s.cam = camera((-10, 0), 0.27, tilt=14, azim=-95)
+    return s
+
+
 SCENES = [s01_top_baseline, s02_tilt25, s03_tilt45, s04_tilt60, s05_hard_shadow, s06_side_gradient, s07_glare,
           s08_flash, s09_low_light, s10_dof, s11_motion, s12_cutting_mat, s13_graph_paper, s14_dark_distractors,
           s15_two_squares, s16_white_on_dark, s17_small_far, s18_highres, s19_occluded, s20_no_marker,
-          s21_low_contrast, s22a, s22b, s22c, s23_card_dark_table]
+          s21_low_contrast, s22a, s22b, s22c, s23_card_dark_table, s24, s25, s26, s27, s28, s29, s30, s31]
 
 
 def save_manifest(path, manifest):

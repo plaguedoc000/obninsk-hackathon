@@ -18,6 +18,7 @@ import numpy as np
 
 from . import config
 from .errors import bad_input
+from .pose import ensemble_uncertainty_pct, marker_pose
 
 # ---------------------------------------------------------------- базовое
 
@@ -188,8 +189,11 @@ def build_calibration(
     method: str = "manual",
     sigma_px: float | None = None,
     image_size: tuple[int, int] | None = None,
+    plane: dict | None = None,
+    focal35_mm: float | None = None,
 ) -> dict:
-    """Калибровка по 4 углам эталона. Возвращает всё, что нужно для измерений."""
+    """Калибровка по 4 углам эталона. Возвращает всё, что нужно для измерений.
+    plane — лист бумаги под эталоном (plane.find_sheet): его края дают перспективу точнее эталона."""
     if not (0.5 <= marker_size_mm <= 1000):
         raise bad_input("BAD_MARKER_SIZE", "Сторона эталона должна быть от 0,5 до 1000 мм")
     if perspective not in ("auto", "on", "off"):
@@ -218,9 +222,26 @@ def build_calibration(
         sigma_px = config.MANUAL_CORNER_SIGMA_PX if method == "manual" else 0.5
     sigma_px = max(float(sigma_px), config.MIN_AUTO_CORNER_SIGMA_PX)
 
-    # перспективу включаем, только если трапеция заметно сильнее шума измерения углов
+    # Перспектива, по убыванию надёжности:
+    # 1) лист бумаги в кадре (его края, plane.py);
+    # 2) поза эталона при известном фокусном расстоянии (pose.py) — фокусное из EXIF или как у телефона;
+    # 3) только по трапеции эталона — если она заметно сильнее шума измерения углов
+    by_sheet = bool(plane) and perspective != "off"
+    pose = None
+    focal_px = None
+    if image_size is not None:
+        focal_px = (focal35_mm or config.DEFAULT_FOCAL35_MM) / 43.27 * math.hypot(*image_size)  # 43,27 мм — диагональ кадра 35 мм
+        if not by_sheet and perspective != "off":
+            pose = marker_pose(c, marker_size_mm, image_size, focal_px, 0.03 if focal35_mm else 0.12, sigma_px)
     noise_level = 3.0 * math.sqrt(2) * sigma_px / side_px
-    if perspective == "on":
+    if by_sheet:
+        # лист в кадре: перспектива по его краям, масштаб и растяжение — по эталону
+        homog = np.array(plane["homography"], dtype=np.float64)
+        use_persp = True
+    elif pose:
+        homog = pose["H"]
+        use_persp = True
+    elif perspective == "on":
         use_persp = True
     elif perspective == "off":
         use_persp = False
@@ -242,16 +263,33 @@ def build_calibration(
             f"Эталон на снимке мелкий ({side_px:.0f} пикс.). Снимите ближе или загрузите фото без сжатия — "
             f"тогда погрешность станет меньше (сейчас около ±{area_unc_pct:.1f}%).",
         ))
-    if shape_tilt >= config.STRONG_TILT_DEG or opp_diff >= config.TILT_SIDE_RATIO * 1.5:
-        warnings.append(_warn(
-            "STRONG_TILT",
-            "Камера заметно наклонена. Для точного результата снимайте строго сверху.",
-        ))
-    if adj_ratio >= config.NOT_SQUARE_RATIO and opp_diff < config.TILT_SIDE_RATIO and shape_tilt < 6:
-        warnings.append(_warn(
-            "MARKER_NOT_SQUARE",
-            f"Соседние стороны эталона отличаются на {adj_ratio * 100:.0f}%. Проверьте линейкой, что эталон действительно квадратный.",
-        ))
+    if pose:
+        if pose["tilt_deg"] >= config.POSE_STRONG_TILT_DEG:
+            warnings.append(_warn(
+                "STRONG_TILT",
+                f"Камера наклонена примерно на {pose['tilt_deg']:.0f}°. Перспектива учтена по эталону, но точнее — "
+                "снимать сверху или так, чтобы лист бумаги под образцом целиком попал в кадр.",
+            ))
+        # квадрат под любым наклоном камеры даёт на фото вполне определённую форму; если углы в неё
+        # не укладываются — эталон не квадратный или углы стоят неточно
+        if pose["reprojection_px"] > max(4 * sigma_px, 0.015 * side_px):
+            warnings.append(_warn(
+                "MARKER_NOT_SQUARE",
+                "Углы эталона не складываются в квадрат даже с учётом наклона камеры. Проверьте рамку эталона "
+                "и линейкой — что он действительно квадратный.",
+            ))
+    elif not by_sheet:
+        if shape_tilt >= config.STRONG_TILT_DEG or opp_diff >= config.TILT_SIDE_RATIO * 1.5:
+            warnings.append(_warn(
+                "STRONG_TILT",
+                "Камера заметно наклонена. Для точного результата снимайте строго сверху "
+                "или так, чтобы лист бумаги под образцом целиком попал в кадр — по нему наклон исправится.",
+            ))
+        if adj_ratio >= config.NOT_SQUARE_RATIO and opp_diff < config.TILT_SIDE_RATIO and shape_tilt < 6:
+            warnings.append(_warn(
+                "MARKER_NOT_SQUARE",
+                f"Соседние стороны эталона отличаются на {adj_ratio * 100:.0f}%. Проверьте линейкой, что эталон действительно квадратный.",
+            ))
     if image_size is not None:
         w, h = image_size
         margin = 0.03 * min(w, h)
@@ -276,6 +314,14 @@ def build_calibration(
         "uncertainty_pct": area_unc_pct,
         "affine": affine.tolist(),
         "homography": homog.tolist(),
+        "plane": (
+            {k: v for k, v in plane.items() if k != "homography"} if by_sheet
+            else {"source": "pose", **{k: v for k, v in pose.items() if k not in ("H", "ensemble")}} if pose
+            else {"source": "marker"}
+        ),
+        "pose_ensemble": pose["ensemble"] if pose else None,
+        "focal_px": focal_px,
+        "focal_from_exif": bool(focal35_mm),
         "warnings": warnings,
     }
 
@@ -367,14 +413,31 @@ def measure_polygon(cal: dict, poly_px: np.ndarray) -> dict:
 
     base = cal["uncertainty_pct"]
     if use_p:
-        # ошибка перспективы растёт с удалением от эталона
+        # ошибка перспективы растёт с удалением от эталона; по листу она во столько раз меньше,
+        # во сколько лист больше эталона
         extra = 200.0 * dist_sides * math.sqrt(2) * cal["sigma_px"] / cal["marker_side_px"]
+        span = (cal.get("plane") or {}).get("span_px")
+        if span:
+            extra *= min(1.0, cal["marker_side_px"] / span)
         unc = math.sqrt(base**2 + extra**2)
     else:
         unc = base
 
+    # перспектива по позе эталона: погрешность — насколько площадь меняется при других вариантах позы
+    persp_pct = 0.0
+    if use_p and cal.get("pose_ensemble"):
+        persp_pct = ensemble_uncertainty_pct(cal, poly_px, area, apply_transform, polygon_area)
+        unc = math.sqrt(base**2 + persp_pct**2)
+
     warnings = []
-    if dist_sides > config.FAR_FROM_MARKER_SIDES:
+    if persp_pct >= config.PERSPECTIVE_WARN_PCT:
+        warnings.append(_warn(
+            "FAR_FROM_MARKER",
+            f"Объект далеко от эталона: наклон камеры по одному эталону известен неточно, здесь это около ±{persp_pct:.0f}%. "
+            "Положите эталон рядом с объектом или снимите так, чтобы лист бумаги под ними целиком "
+            "(или хотя бы три его стороны) попал в кадр.",
+        ))
+    elif dist_sides > config.FAR_FROM_MARKER_SIDES:
         warnings.append(_warn(
             "FAR_FROM_MARKER",
             f"Объект далеко от эталона (≈{dist_sides:.0f} сторон эталона). Положите эталон ближе к объекту.",
@@ -392,5 +455,6 @@ def measure_polygon(cal: dict, poly_px: np.ndarray) -> dict:
         "method": "perspective" if use_p else "scale",
         "area_px": polygon_area(poly_px),
         "distance_from_marker_sides": dist_sides,
+        "perspective_uncertainty_pct": persp_pct,
         "warnings": warnings,
     }

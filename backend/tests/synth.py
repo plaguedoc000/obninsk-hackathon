@@ -33,19 +33,30 @@ def rect_corners(cx, cy, w, h, angle_deg=0.0) -> np.ndarray:
     return base @ R.T + [cx, cy]
 
 
+def to_linear(c):
+    v = np.asarray(c, np.float32) / 255.0
+    return np.where(v <= 0.04045, v / 12.92, ((v + 0.055) / 1.055) ** 2.4)
+
+
+def to_srgb(v):
+    v = np.clip(v, 0, 1)
+    return np.where(v <= 0.0031308, v * 12.92, 1.055 * v ** (1 / 2.4) - 0.055) * 255.0
+
+
 def render(size=(1600, 1200), bg=(170, 110, 240), shapes=(), noise=2.0, blur=0.6, seed=0) -> np.ndarray:
-    """shapes: [(polygon_px Nx2, (b,g,r)), ...] — рисуются по порядку."""
+    """shapes: [(polygon_px Nx2, (b,g,r)), ...] — рисуются по порядку.
+    Как в камере: края смешиваются и размываются в линейном свете, потом — гамма sRGB и шум."""
     W, H = size
     out = np.zeros((H, W, 3), np.float32)
-    out[:] = bg
+    out[:] = to_linear(bg)
     for poly, color in shapes:
         cov, x0, y0 = _coverage(np.asarray(poly, dtype=np.float64), W, H)
         h, w = cov.shape
         region = out[y0:y0 + h, x0:x0 + w]
-        region[:] = region * (1 - cov[..., None]) + np.array(color, np.float32) * cov[..., None]
-    out = np.clip(out, 0, 255).astype(np.uint8)
+        region[:] = region * (1 - cov[..., None]) + to_linear(color) * cov[..., None]
     if blur > 0:
         out = cv2.GaussianBlur(out, (0, 0), blur)
+    out = np.clip(np.round(to_srgb(out)), 0, 255).astype(np.uint8)
     if noise > 0:
         rng = np.random.default_rng(seed)
         out = np.clip(out.astype(np.float32) + rng.normal(0, noise, out.shape), 0, 255).astype(np.uint8)

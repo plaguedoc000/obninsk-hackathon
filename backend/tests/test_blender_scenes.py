@@ -26,16 +26,6 @@ SCENES = json.loads((FIX / "manifest.json").read_text("utf-8"))["scenes"]
 client = TestClient(app)
 
 
-def tilt(deg: int, errs: str) -> str:
-    return (f"Наклон камеры {deg}°: по эталону 1 см перспективу не разглядеть, и сайт считает масштаб одинаковым "
-            f"по всему кадру. Образцы в 8–14 см от эталона выходят с ошибкой {errs}. "
-            "Чинится поиском перспективы по краям листа A4 или эталоном вплотную к образцу.")
-
-
-GAMMA = ("Эталон размыт, а края ищутся по середине яркости в гамма-значениях JPEG: размытый квадрат находится "
-         "меньше настоящего (углы уходят внутрь). Чинится переводом яркости в линейную перед уточнением углов.")
-SILENT = "Наклон {}° не виден по эталону 1 см: ошибка {} без единого предупреждения, а обещано ±2%."
-
 # Требования к каждой сцене:
 #   corner — макс. ошибка угла эталона, в долях стороны эталона (0,01 ≈ 0,7 пикс. при эталоне 70 пикс.);
 #   area — макс. ошибка площади образца по точному контуру, %;
@@ -45,41 +35,48 @@ SILENT = "Наклон {}° не виден по эталону 1 см: ошиб
 #   wand — минимальное совпадение (IoU) обводки «волшебной палочки» с настоящим контуром;
 #   issues — известные слабости (тест помечен xfail, см. cases()).
 EXPECT: dict[str, dict] = {
-    "01_top_baseline": dict(corner=0.01, area=2.0, wand=0.9),
-    "02_tilt_25": dict(corner=0.015, area=3.0, wand=0.9, issues={"area": tilt(25, "+44…+81%")}),
-    "03_tilt_45": dict(corner=0.015, area=3.0, wand=0.9, issues={"area": tilt(45, "−34…+46%")}),
+    "01_top_baseline": dict(corner=0.01, area=2.0, wand=0.95),
+    "02_tilt_25": dict(corner=0.015, area=3.0, wand=0.95),
+    "03_tilt_45": dict(corner=0.015, area=3.0, wand=0.95),
+    # эталон под 60° сжат вдвое — его не отличить от прямоугольника; сайт честно говорит, что не нашёл
     "04_tilt_60": dict(found=False),
-    "05_hard_shadow": dict(corner=0.01, area=3.0, wand=0.9, issues={"area": tilt(10, "+10…+25%")}),
-    "06_side_gradient": dict(corner=0.025, area=3.0, wand=0.9, issues={"area": tilt(12, "+9…+28%")}),
-    "07_glare": dict(corner=0.02, area=3.0, wand=0.9, issues={
-        "marker": "Блик съел угол глянцевого эталона: найден не тот контур (угол мимо на ~16 пикс.). "
-                  "Сайт хотя бы предупреждает о высокой погрешности.",
-        "area": "Неверный эталон из-за блика + наклон 28°: площадь мимо на −97%."}),
-    "08_flash": dict(corner=0.01, area=3.0, wand=0.9, issues={
-        "area": tilt(5, "+7…+13%"), "honest": {0: SILENT.format(5, "+7%"), 1: SILENT.format(5, "+13%")}}),
-    "09_low_light": dict(corner=0.025, area=3.0, wand=0.9, warn=["MULTIPLE_CANDIDATES"], issues={"area": tilt(8, "+8…+19%")}),
-    "10_dof": dict(corner=0.02, area=3.0, wand=0.9, issues={"marker": GAMMA, "area": GAMMA + " Плюс наклон 38°."}),
-    "11_motion_blur": dict(corner=0.02, area=3.0, wand=0.85, issues={"marker": GAMMA, "area": GAMMA + " Плюс наклон 6°."}),
-    "12_cutting_mat": dict(corner=0.025, area=3.0, wand=0.9, issues={"area": tilt(10, "+14…+19%")}),
-    "13_graph_paper": dict(corner=0.01, area=3.0, wand=0.9, issues={
-        "area": tilt(7, "+8…+16%"), "honest": {0: SILENT.format(7, "+8%"), 1: SILENT.format(7, "+16%")}}),
-    "14_dark_distractors": dict(corner=0.01, area=3.0, wand=0.9, issues={"area": tilt(10, "+20%")}),
-    "15_two_squares": dict(corner=0.01, area=3.0, wand=0.9, warn=["MULTIPLE_CANDIDATES"], issues={"area": tilt(6, "+11%")}),
-    "16_white_on_dark": dict(corner=0.015, area=3.0, polarity="light", wand=0.9, issues={
-        "area": tilt(8, "+10…+18%"), "honest": {0: SILENT.format(8, "+10%"), 1: SILENT.format(8, "+18%")}}),
-    "17_small_far": dict(corner=0.02, area=8.0, wand=0.9, warn=["MARKER_SMALL"]),
-    "18_highres_8mp": dict(corner=0.01, area=3.0, wand=0.9, issues={
-        "area": {1: tilt(14, "−5%"), 2: tilt(14, "−15%"), 3: tilt(14, "+7%"), 4: tilt(14, "+25%")},
-        "honest": {2: SILENT.format(14, "−15%"), 3: SILENT.format(14, "+7%"), 4: SILENT.format(14, "+25%")},
-        "wand": {2: "Палочка работает на копии 1200 пикс.: полоска шириной 3 мм (~9 пикс.) съедается сглаживанием, "
-                    "обводка мимо на 20%, и палочка об этом не предупреждает."}}),
+    "05_hard_shadow": dict(corner=0.01, area=3.0, wand=0.95),
+    # эталон на 0,1 мм выше бумаги: низкий боковой свет даёт от этой ступеньки тень в 1,5 пикс. с одной стороны
+    "06_side_gradient": dict(corner=0.025, area=3.0, wand=0.95),
+    # угол глянцевого эталона засвечен бликом и достроен по сторонам — точность угла ниже
+    "07_glare": dict(corner=0.04, area=3.0, wand=0.95, warn=["STRONG_TILT", "MARKER_CORNER_RESTORED"], issues={
+        "area": "Угол эталона съеден бликом и достроен (±1,7 пикс.), а при наклоне 28° это даёт +5% площади. "
+                "Погрешность сайт показывает честно, с предупреждением о наклоне."}),
+    "08_flash": dict(corner=0.01, area=3.0, wand=0.95),
+    "09_low_light": dict(corner=0.025, area=3.0, wand=0.95, warn=["MULTIPLE_CANDIDATES"]),
+    "10_dof": dict(corner=0.02, area=3.0, wand=0.95),
+    "11_motion_blur": dict(corner=0.02, area=3.0, wand=0.9),
+    "12_cutting_mat": dict(corner=0.025, area=3.0, wand=0.95, issues={
+        "area": {0: "Белые линии сетки коврика у краёв эталона сбивают уточнение углов (до 1,4 пикс.); при наклоне 10° "
+                    "образец вдали выходит на +4%. Погрешность сайт показывает честно (±5%)."}}),
+    # жирная линия миллиметровки (0,25 мм) проходит ровно по краю эталона: её половина снаружи сливается с краем
+    "13_graph_paper": dict(corner=0.015, area=3.0, wand=0.95),
+    "14_dark_distractors": dict(corner=0.01, area=3.0, wand=0.95),
+    "15_two_squares": dict(corner=0.01, area=3.0, wand=0.95, warn=["MULTIPLE_CANDIDATES"]),
+    "16_white_on_dark": dict(corner=0.015, area=3.0, polarity="light", wand=0.95),
+    "17_small_far": dict(corner=0.02, area=3.0, wand=0.95, warn=["MARKER_SMALL"]),
+    "18_highres_8mp": dict(corner=0.01, area=3.0, wand=0.95),
+    # ручка лежит поверх угла эталона и сливается с ним в одно пятно; сайт честно говорит, что не нашёл
     "19_occluded": dict(found=False),
-    "21_low_contrast": dict(corner=0.01, area=3.0, wand=0.9, issues={
-        "area": tilt(5, "+8…+13%"), "honest": {1: SILENT.format(5, "+13%")}}),
-    "22_series_a": dict(corner=0.01, area=2.0, wand=0.9),
-    "22_series_b": dict(corner=0.015, area=3.0, wand=0.9, warn=["STRONG_TILT"], issues={"area": tilt(30, "+71%")}),
-    "22_series_c": dict(corner=0.015, area=3.0, wand=0.9),
-    "23_card_dark_table": dict(corner=0.01, area=3.0, wand=0.9, issues={"area": tilt(9, "+15…+23%")}),
+    "21_low_contrast": dict(corner=0.01, area=3.0, wand=0.95),
+    "22_series_a": dict(corner=0.01, area=2.0, wand=0.95),
+    "22_series_b": dict(corner=0.015, area=3.0, wand=0.95, warn=["STRONG_TILT"]),
+    "22_series_c": dict(corner=0.015, area=3.0, wand=0.95),
+    "23_card_dark_table": dict(corner=0.01, area=3.0, wand=0.95),
+    # контрольные сцены: добавлены после настройки и прошли проверку «вслепую», ничего под них не подгонялось
+    "24_lens24_noexif": dict(corner=0.01, area=3.0, wand=0.95),
+    "25_lens28_exif": dict(corner=0.01, area=3.0, wand=0.95),
+    "26_tele52_exif": dict(corner=0.01, area=3.0, wand=0.95),
+    "27_tele52_noexif": dict(corner=0.01, area=3.0, wand=0.95),
+    "28_center_marker": dict(corner=0.01, area=3.0, wand=0.95),
+    "29_dark_table_tilt18": dict(corner=0.01, area=3.0, wand=0.95),
+    "30_white_tray": dict(corner=0.01, area=3.0, wand=0.95),
+    "31_blue_paper_white_table": dict(corner=0.01, area=3.0, wand=0.95),
 }
 
 
@@ -225,9 +222,8 @@ def test_unfindable_marker_is_reported(name):
     assert v["status"] == "marker_not_found" and "MARKER_NOT_FOUND" in warning_codes(v)
 
 
-@pytest.mark.xfail(strict=True, reason="Жёлтая квадратная наклейка 12 мм принята за чёрный эталон: площадь −31% "
-                   "без предупреждений. Чинится проверкой, что эталон действительно тёмный (внутри в 2+ раза темнее фона).")
 def test_no_marker_is_reported():
+    """Жёлтая квадратная наклейка 12 мм — не эталон: эталон чёрный, втрое и больше темнее фона."""
     v = uploaded("20_no_marker")
     assert v["status"] == "marker_not_found"
     assert "MARKER_NOT_FOUND" in warning_codes(v)
@@ -238,6 +234,13 @@ def test_two_squares_ambiguity_is_reported():
     v = uploaded("15_two_squares")
     picked_right = v["calibration"] and corner_error(v, "15_two_squares") < 0.05
     assert picked_right or "MULTIPLE_CANDIDATES" in warning_codes(v)
+
+
+def test_exif_focal_length_is_used():
+    """В фото с телефона фокусное расстояние лежит в EXIF — по нему сайт восстанавливает наклон камеры."""
+    v = uploaded("26_tele52_exif")
+    assert v["calibration"]["focal_from_exif"]
+    assert not uploaded("27_tele52_noexif")["calibration"]["focal_from_exif"]
 
 
 def test_exif_rotated_phone_photo():
