@@ -167,7 +167,7 @@ export function ToolRail(props: ToolRailProps) {
 function DesktopRail({ tool = null, mask, canUndo, canDelete, zoom = 1, disabled, onTool, onUndo, onDelete, onMask, onZoom }: ToolRailProps) {
   return (
     <>
-      {/* Эталон — квадрат известного размера (обычно 1×1 см) или отрезок известной длины. На компьютере кнопки друг под другом, на телефоне — рядом */}
+      {/* Эталон — квадрат 1×1 см или отрезок известной длины. На компьютере кнопки друг под другом, на телефоне — рядом */}
       <div className={cn('flex shrink-0 flex-col items-center', disabled && 'opacity-30')}>
         <span className="pb-0.5 font-mono text-[8px] font-medium tracking-[.12em] text-lab-text/45">ЭТАЛОН</span>
         <div className="flex gap-1.5 lg:flex-col">
@@ -179,7 +179,7 @@ function DesktopRail({ tool = null, mask, canUndo, canDelete, zoom = 1, disabled
             active={tool === 'marker'}
             disabled={disabled}
             onClick={() => onTool?.('marker')}
-            title="Квадрат на фото: обычно 1×1 см, но подойдёт любой — его сторону в мм впишите под рамкой. Подвиньте уголки синей рамки на углы квадрата. Рамки нет — щёлкните 4 угла квадрата"
+            title="Квадрат 1×1 см на фото. Подвиньте уголки синей рамки на углы квадрата. Рамки нет — щёлкните 4 угла квадрата"
           />
           <RailButton
             label="ОТРЕЗОК"

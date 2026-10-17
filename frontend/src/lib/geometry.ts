@@ -1,6 +1,6 @@
 import type { Pt, Quad, Segment } from './types'
 
-// Сторона эталона в миллиметрах по умолчанию (квадрат 1×1 см). Другой размер — Photo.markerMm
+// Сторона эталона в миллиметрах
 export const MARKER_MM = 10
 
 export const dist = (a: Pt, b: Pt) => Math.hypot(a.x - b.x, a.y - b.y)
@@ -39,7 +39,7 @@ export type MarkerQuality = {
   skewed: boolean
 }
 
-export function markerQuality(q: Quad, mm = MARKER_MM): MarkerQuality {
+export function markerQuality(q: Quad): MarkerQuality {
   const s = sides(q)
   const mean = s.reduce((a, b) => a + b, 0) / 4
   const spread = (Math.max(...s) - Math.min(...s)) / mean
@@ -48,7 +48,7 @@ export function markerQuality(q: Quad, mm = MARKER_MM): MarkerQuality {
   // углы ставятся с точностью около 1,5 пикселя, плюс разброс сторон из-за наклона
   const errorPct = (1.5 / mean + spread / 2) * 100
   return {
-    ppm: mean / mm,
+    ppm: mean / MARKER_MM,
     sidePx: mean,
     errorPct,
     areaErrorPct: errorPct * 2,
@@ -110,25 +110,25 @@ export function applyH(h: number[], p: Pt): Pt {
   return { x: (h[0] * p.x + h[1] * p.y + h[2]) / w, y: (h[3] * p.x + h[4] * p.y + h[5]) / w }
 }
 
-const squareMm = (mm: number): Pt[] => [
+const SQUARE_MM: Pt[] = [
   { x: 0, y: 0 },
-  { x: mm, y: 0 },
-  { x: mm, y: mm },
-  { x: 0, y: mm },
+  { x: MARKER_MM, y: 0 },
+  { x: MARKER_MM, y: MARKER_MM },
+  { x: 0, y: MARKER_MM },
 ]
 
 // Площадь в мм² с поправкой на перспективу: точки переводятся в миллиметры на плоскости эталона.
 // Без наклона камеры это то же самое, что площадь_пикс × (мм/пикс)²
-export function areaMm2(points: Pt[], marker: Quad, mm = MARKER_MM) {
-  const h = isConvex(marker) ? homography(marker, squareMm(mm)) : null
-  if (!h) return shoelace(points) / markerQuality(marker, mm).ppm ** 2
+export function areaMm2(points: Pt[], marker: Quad) {
+  const h = isConvex(marker) ? homography(marker, SQUARE_MM) : null
+  if (!h) return shoelace(points) / markerQuality(marker).ppm ** 2
   return shoelace(points.map((p) => applyH(h, p)))
 }
 
 // Периметр замкнутого контура в мм, с той же поправкой на перспективу
-export function perimeterMm(points: Pt[], marker: Quad, side = MARKER_MM) {
-  const h = isConvex(marker) ? homography(marker, squareMm(side)) : null
-  const ppm = markerQuality(marker, side).ppm
+export function perimeterMm(points: Pt[], marker: Quad) {
+  const h = isConvex(marker) ? homography(marker, SQUARE_MM) : null
+  const ppm = markerQuality(marker).ppm
   const mm = h ? points.map((p) => applyH(h, p)) : points.map((p) => ({ x: p.x / ppm, y: p.y / ppm }))
   return mm.reduce((s, p, i) => s + dist(p, mm[(i + 1) % mm.length]), 0)
 }

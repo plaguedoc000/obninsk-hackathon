@@ -4,14 +4,14 @@ import ImageStage, { MAX_ZOOM, type Line, type Norm } from '@/components/ImageSt
 import Workspace, { AreaRow, StageTitle, ToolRail, UNDO_ARROW } from '@/components/Workspace'
 import { api } from '@/lib/api'
 import { fmt } from '@/lib/format'
-import { MARKER_MM, orderQuad, segmentQuad, selfIntersects } from '@/lib/geometry'
+import { orderQuad, segmentQuad, selfIntersects } from '@/lib/geometry'
 import { totalsOf } from '@/lib/measure'
-import { newId, preferredMarkerMm, setPreferredMarkerMm } from '@/lib/photos'
+import { newId } from '@/lib/photos'
 import type { Area, Photo, Pt, Segment, Tool } from '@/lib/types'
 import { useMobile } from '@/lib/useMobile'
 import { cn } from '@/lib/utils'
 
-type Snapshot = Pick<Photo, 'marker' | 'markerMm' | 'segment' | 'markerSource' | 'areas'>
+type Snapshot = Pick<Photo, 'marker' | 'segment' | 'markerSource' | 'areas'>
 
 type Props = {
   photo: Photo
@@ -47,13 +47,7 @@ export default function Editor({ photo, norm, picking, onChange }: Props) {
 
   // «Назад» возвращает эталон и области к состоянию до последнего действия
   function remember() {
-    const snap: Snapshot = {
-      marker: photo.marker,
-      markerMm: photo.markerMm,
-      segment: photo.segment,
-      markerSource: photo.markerSource,
-      areas: photo.areas,
-    }
+    const snap: Snapshot = { marker: photo.marker, segment: photo.segment, markerSource: photo.markerSource, areas: photo.areas }
     setHistory((h) => [...h.slice(-49), snap])
   }
 
@@ -125,9 +119,6 @@ export default function Editor({ photo, norm, picking, onChange }: Props) {
     setSelectedId(null)
   }
 
-  // Сторона квадрата: прежняя, а если до этого эталоном был отрезок — последняя выбранная (обычно 1 см)
-  const squareMm = () => (photo.segment ? preferredMarkerMm() : photo.markerMm)
-
   // Эталон вручную: четыре щелчка по углам квадрата
   function markerPoint(p: Pt) {
     const next = [...markerDraft, p]
@@ -136,22 +127,14 @@ export default function Editor({ photo, norm, picking, onChange }: Props) {
       return
     }
     remember()
-    onChange(() => ({ marker: orderQuad(next), markerMm: squareMm(), segment: null, markerSource: 'manual' }))
+    onChange(() => ({ marker: orderQuad(next), segment: null, markerSource: 'manual' }))
     setMarkerDraft([])
     setTool(null)
   }
 
-  // Квадрат другого размера: поле «__ мм» под рамкой. Размер запоминается и для следующих фото
-  function markerSize(mm: number) {
-    setPreferredMarkerMm(mm)
-    if (mm === photo.markerMm) return
-    remember()
-    onChange(() => ({ markerMm: mm }))
-  }
-
   // Эталон-отрезок: вместо квадрата — отрезок известной длины (например, по шкале линейки на фото)
   function setSegment(seg: Segment) {
-    onChange(() => ({ segment: seg, marker: segmentQuad(seg), markerMm: MARKER_MM, markerSource: 'manual' }))
+    onChange(() => ({ segment: seg, marker: segmentQuad(seg), markerSource: 'manual' }))
   }
 
   // «Отрезок»: протянутая линия становится эталоном указанной длины
@@ -249,7 +232,7 @@ export default function Editor({ photo, norm, picking, onChange }: Props) {
 
   // Телефон: подсказка к инструменту — что сделать пальцем дальше
   let hint: string
-  if (tool === 'marker') hint = markerDraft.length ? `Угол ${markerDraft.length + 1} из 4` : photo.marker && !photo.segment ? 'Тяните уголки или исправьте мм' : 'Нажмите 4 угла квадрата'
+  if (tool === 'marker') hint = markerDraft.length ? `Угол ${markerDraft.length + 1} из 4` : photo.marker && !photo.segment ? 'Тяните уголки рамки' : 'Нажмите 4 угла квадрата'
   else if (tool === 'segment') hint = photo.segment ? 'Тяните концы или исправьте мм' : 'Протяните линию по шкале'
   else if (tool === 'auto') hint = addMode ? (selected ? 'Нажмите, что добавить' : 'Нажмите на объект') : 'Нажмите на объект'
   else if (tool === 'area') hint = draft.length ? `Точек: ${draft.length}` : 'Ставьте точки по краю'
@@ -288,8 +271,7 @@ export default function Editor({ photo, norm, picking, onChange }: Props) {
         addMode={mobile && addMode && !!selected}
         ruler={ruler}
         onDragStart={remember}
-        onMarkerChange={(marker) => onChange(() => ({ marker, markerMm: squareMm(), segment: null, markerSource: 'manual' }))}
-        onMarkerSize={markerSize}
+        onMarkerChange={(marker) => onChange(() => ({ marker, segment: null, markerSource: 'manual' }))}
         onMarkerPoint={markerPoint}
         onSegmentChange={setSegment}
         onSegmentLength={segmentLength}

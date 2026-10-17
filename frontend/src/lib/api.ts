@@ -8,8 +8,6 @@ export type Health = { status: string; version: string; images: number; heic_sup
 export type ApiCalibration = {
   kind?: 'square' | 'segment'
   corners_px: [number, number][]
-  // сторона квадрата-эталона, мм (у отрезка — «виртуального» квадрата 10 мм)
-  marker_size_mm?: number
   // эталон-отрезок: два конца и длина в мм
   segment_px?: [number, number][]
   segment_mm?: number
@@ -96,12 +94,11 @@ export const api = {
   // Фото одного браузера лежат на сервере в своей группе, см. workspaceId() в photos.ts
   listImages: (group: string) => request<{ images: ApiImage[] }>(`/images?group=${encodeURIComponent(group)}`),
 
-  // Сервер сразу ищет эталон и калибрует масштаб; markerMm — сторона квадрата-эталона
-  uploadImage: (file: File, group: string, markerMm: number) => {
+  // Сервер сразу ищет эталон и калибрует масштаб
+  uploadImage: (file: File, group: string) => {
     const form = new FormData()
     form.append('files', file)
     form.append('group', group)
-    form.append('marker_size_mm', String(markerMm))
     return request<Upload>('/images', { method: 'POST', body: form })
   },
 
@@ -109,12 +106,8 @@ export const api = {
 
   detect: (id: string) => request<ApiImage>(`/images/${id}/detect`, { method: 'POST', body: '{}' }),
 
-  // Квадрат-эталон: 4 угла и его сторона в мм
-  setCorners: (id: string, corners: { x: number; y: number }[], markerMm: number) =>
-    request<ApiImage>(`/images/${id}/calibration`, {
-      method: 'PUT',
-      body: JSON.stringify({ corners: pairs(corners), marker_size_mm: markerMm }),
-    }),
+  setCorners: (id: string, corners: { x: number; y: number }[]) =>
+    request<ApiImage>(`/images/${id}/calibration`, { method: 'PUT', body: JSON.stringify({ corners: pairs(corners) }) }),
 
   // Эталон-отрезок: два конца и сколько это мм
   setSegment: (id: string, seg: { a: { x: number; y: number }; b: { x: number; y: number }; mm: number }) =>

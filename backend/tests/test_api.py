@@ -117,20 +117,6 @@ def test_manual_calibration_marker_size_and_preview():
     assert r.json()["measurements"][0]["area_mm2"] == pytest.approx(4800, rel=1e-4)
 
 
-def test_custom_marker_size_on_upload_and_corners():
-    # квадрат на фото — 50 px. Скажем, что его сторона 20 мм: масштаб вдвое мельче, чем у квадрата 1×1 см
-    img, m, obj = scene(5.0)
-    v = upload("big_marker.jpg", jpeg_bytes(img), marker_size_mm="20")
-    assert v["calibration"]["marker_size_mm"] == 20
-    assert v["calibration"]["px_per_mm"] == pytest.approx(2.5, rel=0.02)
-    # углы и сторона вместе, как их шлёт сайт: квадрат 25 мм → 2 px/мм, образец 150×200 px = 75×100 мм
-    r = client.put(f"/api/images/{v['id']}/calibration", json={"corners": m.tolist(), "marker_size_mm": 25}).json()
-    assert r["calibration"]["marker_size_mm"] == 25
-    assert r["calibration"]["px_per_mm"] == pytest.approx(2.0, rel=1e-3)
-    pv = client.post(f"/api/images/{v['id']}/measurements", json={"points": obj.tolist(), "save": False}).json()
-    assert pv["area_mm2"] == pytest.approx(7500, rel=1e-3)
-
-
 def test_measurement_edit_and_delete():
     img, m, obj = scene(6.0)
     v = upload("edit.jpg", jpeg_bytes(img))
