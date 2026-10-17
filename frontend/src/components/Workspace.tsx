@@ -359,13 +359,13 @@ function MobileTools({ tool = null, mask, disabled, onTool, onMask, refTool = 'm
 // Рамка с фото: тёмное поле с сеткой 24 px и уголками — слева синие, справа красные
 export function StageFrame({ children, className, style, ref }: { children?: ReactNode; className?: string; style?: CSSProperties; ref?: Ref<HTMLDivElement> }) {
   const corner = 'pointer-events-none absolute size-[26px]'
-  // на экране 1440×900 рамка ровно 924×644, как в дизайне
   return (
     <div
       ref={ref}
       className={cn(
-        // на телефоне рамка занимает всё место между шапкой и лентой миниатюр
-        'lab-stage relative min-h-0 flex-1 overflow-hidden border border-lab-sky/18 lg:h-[calc(100svh-256px)] lg:min-h-[300px] lg:flex-none',
+        // рамка занимает всё свободное место: на телефоне — между шапкой и лентой миниатюр,
+        // на компьютере — до строки «ПЛОЩАДЬ», а та прижата к низу окна
+        'lab-stage relative min-h-0 flex-1 overflow-hidden border border-lab-sky/18 lg:min-h-[300px]',
         className,
       )}
       style={style}

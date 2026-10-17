@@ -1,6 +1,7 @@
-import { useId, type ReactNode } from 'react'
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import Workspace, { AreaRow, Scan, StageFrame, StageTitle, ToolRail } from '@/components/Workspace'
 import type { Photo } from '@/lib/types'
+import { useMobile } from '@/lib/useMobile'
 import { cn } from '@/lib/utils'
 
 type Props = { onPick: () => void }
@@ -60,12 +61,35 @@ const TIPS = [
 
 // Экран «новое фото»: как пользоваться в трёх шагах, советы для точности и выбор файла. Инструменты пока бледные
 export default function EmptyState({ onPick }: Props) {
+  // на компьютере приветствие целиком помещается в рамку без прокрутки: не влезает — всё уменьшается разом.
+  // На телефоне так не делаем — текст стал бы мелким, там его можно прокрутить
+  const mobile = useMobile()
+  const boxRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  const [fit, setFit] = useState(1)
+  useLayoutEffect(() => {
+    const box = boxRef.current
+    const content = contentRef.current
+    if (!box || !content || mobile) return setFit(1)
+    // offsetWidth/offsetHeight — размер без учёта уменьшения, поэтому пересчёт не зацикливается
+    const check = () => setFit(Math.min(1, box.clientHeight / content.offsetHeight, box.clientWidth / content.offsetWidth))
+    check()
+    const ro = new ResizeObserver(check)
+    ro.observe(box)
+    ro.observe(content)
+    return () => ro.disconnect()
+  }, [mobile])
+
   return (
     <Workspace rail={<ToolRail disabled />}>
       <StageTitle name="новое фото" />
       <StageFrame>
-        <div className="absolute inset-0 overflow-y-auto">
-          <div className="flex min-h-full flex-col items-center justify-center gap-4 px-4 py-6 lg:gap-[18px] lg:px-7 lg:py-5">
+        <div ref={boxRef} className="absolute inset-0 overflow-y-auto lg:flex lg:items-center lg:justify-center lg:overflow-hidden">
+          <div
+            ref={contentRef}
+            className="flex min-h-full flex-col items-center justify-center gap-4 px-4 py-6 lg:min-h-0 lg:w-full lg:max-w-[870px] lg:shrink-0 lg:gap-[18px] lg:px-7 lg:py-5"
+            style={fit < 1 ? { transform: `scale(${fit})` } : undefined}
+          >
             <h2 className="text-center text-xl text-white lg:text-[25px]">Площадь образца по фото</h2>
 
             <ol className="grid w-full max-w-[814px] gap-3.5 lg:grid-cols-3">
@@ -138,7 +162,7 @@ const CLICKS = [
 function StepPicture({ kind }: { kind: Picture }) {
   const id = useId()
   return (
-    <svg viewBox="0 -2 160 100" className="block h-[112px] w-[200px]" aria-hidden="true">
+    <svg viewBox="0 -2 160 100" className="block aspect-[200/112] w-full max-w-[200px]" aria-hidden="true">
       <rect x="8" y="22" width="144" height="74" fill="#F2EEE8" />
       {kind === 'shoot' && <path d={BLOB} fill="rgba(224,30,60,.45)" />}
       {kind === 'outline' && <path d={BLOB} fill="rgba(224,30,60,.18)" stroke="#E01E3C" strokeWidth="1.6" strokeDasharray="3 2" />}
