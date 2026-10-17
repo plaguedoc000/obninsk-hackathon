@@ -37,7 +37,7 @@
 ## Запуск
 
 - Первый раз: `npm run setup`, затем `cp .env.example .env`
-- Разработка: `npm run dev` → http://localhost:5173 (API на :8010, документация http://localhost:8010/api/docs)
+- Разработка: `npm run dev` → http://localhost:3000 (API на :8010, документация http://localhost:8010/api/docs)
 - Проверка: `npm run check` (сборка фронтенда + тесты бэкенда). Если упало — чини, не коммить.
 
 ## Правила кода

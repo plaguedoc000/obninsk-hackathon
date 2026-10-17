@@ -9,6 +9,8 @@ export default defineConfig({
     alias: { '@': path.resolve(import.meta.dirname, './src') },
   },
   server: {
+    // Порт 3000: для него во Флида ID зарегистрирован адрес возврата после входа
+    port: 3000,
     // Запросы /api из браузера уходят на бэкенд (uvicorn на 8010)
     proxy: { '/api': 'http://127.0.0.1:8010' },
   },

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import AuthButton from '@/components/AuthButton'
 import Logo from '@/components/Logo'
 import { cn } from '@/lib/utils'
 
@@ -13,7 +14,7 @@ type Props = {
 const SAVE_BUTTON =
   'flex h-10 items-center border border-lab-sky/40 px-3 whitespace-nowrap lg:h-9 lg:px-4 transition-colors outline-none hover:bg-lab-blue/15 focus-visible:ring-2 focus-visible:ring-lab-blue focus-visible:ring-inset'
 
-// Шапка: логотип и две кнопки — «Сохранить» и «Масштабирование».
+// Шапка: логотип, две кнопки — «Сохранить» и «Масштабирование» — и вход через Флида ID.
 // «Сохранить» раскрывается в две: «Сохранить CSV» (таблица) и «Сохранить файлы» (фото в общем масштабе)
 export default function AppHeader({ picking, normalized, onScale, onSaveCsv, onSaveFiles }: Props) {
   const [open, setOpen] = useState(false)
@@ -84,6 +85,7 @@ export default function AppHeader({ picking, normalized, onScale, onSaveCsv, onS
           <span className="lg:hidden">{normalized ? 'МАСШТАБ ✓' : 'МАСШТАБ'}</span>
           <span className="hidden lg:inline">{normalized ? 'МАСШТАБИРОВАНИЕ ✓' : 'МАСШТАБИРОВАНИЕ'}</span>
         </button>
+        <AuthButton />
       </nav>
     </header>
   )

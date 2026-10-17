@@ -1,8 +1,14 @@
-"""Настройки бэкенда. Любое значение можно переопределить переменной окружения."""
+"""Настройки бэкенда. Любое значение можно переопределить переменной окружения или в .env."""
 from __future__ import annotations
 
 import os
 from pathlib import Path
+
+from dotenv import load_dotenv
+
+# backend/app/config.py -> корень репозитория (на сервере это /srv/app)
+ROOT_DIR = Path(__file__).resolve().parents[2]
+load_dotenv(ROOT_DIR / ".env")
 
 
 def _env_float(name: str, default: float) -> float:
@@ -64,5 +70,11 @@ CACHE_IMAGES = max(1, _env_int("ONESCALE_CACHE_IMAGES", 6))
 
 # Приведение к масштабу: ограничение размера выходной картинки
 MAX_OUTPUT_SIDE = _env_int("ONESCALE_MAX_OUTPUT_SIDE", 8000)
+
+# Вход через Флида ID: Client ID проекта «Акулы хакатонов». Это не секрет — браузер всё равно его видит.
+# Client Secret сайту не нужен и в код не попадает. Другой проект — FLIDA_CLIENT_ID в .env
+FLIDA_CLIENT_ID = os.environ.get("FLIDA_CLIENT_ID", "").strip() or "01a14946-555d-7956-92be-2cb721e15313"
+FLIDA_USERINFO_URL = "https://id.flida.ru/api/oidc/userinfo"
+SESSION_DAYS = _env_int("ONESCALE_SESSION_DAYS", 30)
 
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".webp", ".heic", ".heif"}
