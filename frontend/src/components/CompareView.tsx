@@ -13,8 +13,30 @@ const CAPTION = 30 // подпись под фото (24) и отступ до �
 const MIN_W = 132 // подпись «3 830,2 мм²  +1122%» должна поместиться даже под узким фото
 const MAX_UP = 2 // крупнее чем вдвое фото не растягиваем — станет мыльным
 const EASE = 'duration-900 ease-[cubic-bezier(.6,0,.2,1)]'
+const DURATION = 900
+const CURVE = 'cubic-bezier(.6,0,.2,1)' // та же кривая, что в EASE
+
+// Кривая CURVE как функция: доля пройденного времени -> доля пути. Нужна, чтобы номер фото во время анимации
+// уменьшался ровно настолько, насколько растягивается рамка, и оставался своего размера
+function curve(x: number) {
+  const [x1, y1, x2, y2] = [0.6, 0, 0.2, 1]
+  const at = (t: number, a: number, b: number) => 3 * a * t * (1 - t) ** 2 + 3 * b * t ** 2 * (1 - t) + t ** 3
+  let lo = 0
+  let hi = 1
+  for (let i = 0; i < 30; i++) {
+    const mid = (lo + hi) / 2
+    if (at(mid, x1, x2) < x) lo = mid
+    else hi = mid
+  }
+  return at((lo + hi) / 2, y1, y2)
+}
 
 type Size = { w: number; h: number }
+type Box = { x: number; y: number; w: number; h: number }
+
+// место элемента в раскладке — без учёта transform, то есть без идущей анимации
+const layoutBox = (el: HTMLElement): Box => ({ x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight })
+const sameBox = (a: Box, b: Box) => a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h
 
 // Фото идут строкой, как слова в тексте: не влезло — переносится на следующую строку.
 // Ищем самый крупный масштаб, при котором все строки помещаются в окно по высоте.
@@ -112,7 +134,71 @@ export default function CompareView({ photos }: Props) {
       delta = `${v < 0 ? '−' : '+'}${Math.abs(v).toFixed(0)}%`
       deltaColor = v < 0 ? '#6495ED' : '#E01E3C'
     }
-    return { p, s, w: p.width * s, h: p.height * s, px: Math.round(10 * ppm * s), area, delta, deltaColor, n }
+    // линии контуров — 2 px на экране: фото уменьшено в s раз, поэтому в пикселях фото они толще
+    const stroke = s > 0 ? 2 / s : 2
+    return { p, s, w: p.width * s, h: p.height * s, px: Math.round(10 * ppm * s), area, delta, deltaColor, n, stroke }
+  })
+
+  // Анимация при переключении «Как снято» / «Один масштаб» и при выборе фото. Раньше плавно менялись ширина и высота
+  // карточек: в каждом кадре браузер заново раскладывал все фото и перерисовывал тени и контуры — на Android лагало.
+  // Теперь карточки сразу встают на новое место в новом размере, а плавный переход из старого положения делается
+  // только сдвигом и растяжением уже нарисованной картинки (transform). Его выполняет видеочип, без перерисовки
+  const moving = useRef(new Map<string, HTMLDivElement>()) // «id:frame» — фото с рамкой, «id:caption» — подпись
+  const placed = useRef(new Map<string, Box>())
+  const animKey = `${norm}|${cards.map((c) => c.p.id).join(',')}`
+  const lastAnimKey = useRef(animKey)
+  const track = (key: string) => (el: HTMLDivElement | null) => {
+    if (el) moving.current.set(key, el)
+    else moving.current.delete(key)
+  }
+  useLayoutEffect(() => {
+    const animate = lastAnimKey.current !== animKey && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    lastAnimKey.current = animKey
+    const alive = new Set<string>()
+    for (const [key, el] of moving.current) {
+      alive.add(key)
+      const now = layoutBox(el)
+      const before = placed.current.get(key)
+      placed.current.set(key, now)
+      if (!before) {
+        // новое фото проявляется на своём месте
+        if (animate) el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 400, easing: 'ease-out' })
+        continue
+      }
+      if (sameBox(before, now)) continue
+      // где элемент виден прямо сейчас: прежнее место плюс ещё не доигравшая анимация
+      const current = getComputedStyle(el).transform
+      const m = new DOMMatrixReadOnly(current === 'none' ? undefined : current)
+      for (const running of el.getAnimations({ subtree: true })) running.cancel()
+      // окно поменяло размер — встаём на место сразу, без догоняющей анимации
+      if (!animate) continue
+      const from = key.endsWith(':frame') ? (before.w * m.a) / now.w : 1
+      el.animate([{ transform: `translate(${before.x + m.e - now.x}px, ${before.y + m.f - now.y}px) scale(${from})` }, { transform: 'none' }], {
+        duration: DURATION,
+        easing: CURVE,
+      })
+      if (Math.abs(from - 1) < 0.02) continue
+      // номер фото и «1 см = N px» растягиваем обратно, чтобы они оставались своего размера
+      const steps = Array.from({ length: 31 }, (_, i) => i / 30)
+      for (const keep of el.querySelectorAll<HTMLElement>('[data-keep-size]')) {
+        keep.animate(
+          steps.map((t) => ({ offset: t, transform: `scale(${1 / (from + (1 - from) * curve(t))})` })),
+          { duration: DURATION, easing: 'linear' },
+        )
+      }
+      // контуры растягиваются вместе с фото и при сильном масштабе выглядели бы толстыми — проявляем их в конце
+      if (Math.abs(from - 1) > 0.15) {
+        el.querySelector('svg')?.animate(
+          [
+            { opacity: 0, offset: 0 },
+            { opacity: 0, offset: 0.6 },
+            { opacity: 1, offset: 1 },
+          ],
+          { duration: DURATION },
+        )
+      }
+    }
+    for (const key of placed.current.keys()) if (!alive.has(key)) placed.current.delete(key)
   })
 
   return (
@@ -175,13 +261,11 @@ export default function CompareView({ photos }: Props) {
                 {cards.map((c) => (
                   <div key={c.p.id} className="flex flex-col items-center gap-1.5" style={{ width: Math.max(c.w, MIN_W) }}>
                     <div
-                      className={cn('relative overflow-hidden shadow-[0_12px_40px_rgba(0,0,0,.6)] outline outline-lab-sky/40 transition-[width,height]', EASE)}
+                      ref={track(`${c.p.id}:frame`)}
+                      className="relative origin-top-left overflow-hidden shadow-[0_12px_40px_rgba(0,0,0,.6)] outline outline-lab-sky/40"
                       style={{ width: c.w, height: c.h }}
                     >
-                      <div
-                        className={cn('absolute top-0 left-0 origin-top-left transition-transform', EASE)}
-                        style={{ width: c.p.width, height: c.p.height, transform: `scale(${c.s})` }}
-                      >
+                      <div className="absolute top-0 left-0 origin-top-left" style={{ width: c.p.width, height: c.p.height, transform: `scale(${c.s})` }}>
                         <img src={c.p.url} alt={c.p.name} draggable={false} className="absolute inset-0 size-full bg-lab-paper" />
                         <svg viewBox={`0 0 ${c.p.width} ${c.p.height}`} className="absolute inset-0 size-full">
                           {c.p.areas
@@ -192,9 +276,8 @@ export default function CompareView({ photos }: Props) {
                                 points={a.points.map((q) => `${q.x},${q.y}`).join(' ')}
                                 fill="rgba(224,30,60,.22)"
                                 stroke="#E01E3C"
-                                strokeWidth={2}
+                                strokeWidth={c.stroke}
                                 strokeLinejoin="round"
-                                vectorEffect="non-scaling-stroke"
                               />
                             ))}
                           {c.p.segment ? (
@@ -204,8 +287,7 @@ export default function CompareView({ photos }: Props) {
                               x2={c.p.segment.b.x}
                               y2={c.p.segment.b.y}
                               stroke="#5170FF"
-                              strokeWidth={2}
-                              vectorEffect="non-scaling-stroke"
+                              strokeWidth={c.stroke}
                             />
                           ) : (
                             c.p.marker && (
@@ -213,8 +295,7 @@ export default function CompareView({ photos }: Props) {
                                 points={c.p.marker.map((q) => `${q.x},${q.y}`).join(' ')}
                                 fill="none"
                                 stroke="#5170FF"
-                                strokeWidth={2}
-                                vectorEffect="non-scaling-stroke"
+                                strokeWidth={c.stroke}
                               />
                             )
                           )}
@@ -222,15 +303,18 @@ export default function CompareView({ photos }: Props) {
                       </div>
                       {/* в «Одном масштабе» у всех одинаково — это написано внизу, на фото не дублируем */}
                       {!norm && (
-                        <span className="absolute top-2 left-2 bg-lab-blue px-2 py-[3px] font-mono text-[11px] font-semibold whitespace-nowrap text-white">
+                        <span data-keep-size className="absolute top-2 left-2 origin-top-left bg-lab-blue px-2 py-[3px] font-mono text-[11px] font-semibold whitespace-nowrap text-white">
                           1 см = {c.px} px
                         </span>
                       )}
-                      <span className="absolute top-2 right-2 flex h-[22px] min-w-[22px] items-center justify-center border-2 border-lab-blue bg-lab-blue px-1 font-mono text-[11px] font-semibold text-white">
+                      <span data-keep-size className="absolute top-2 right-2 flex h-[22px] origin-top-right min-w-[22px] items-center justify-center border-2 border-lab-blue bg-lab-blue px-1 font-mono text-[11px] font-semibold text-white">
                         {c.n + 1}
                       </span>
                     </div>
-                    <div className="flex h-6 w-full items-center justify-between gap-2 bg-lab-bg/85 px-1.5 font-mono text-[11px] font-medium whitespace-nowrap">
+                    <div
+                      ref={track(`${c.p.id}:caption`)}
+                      className="flex h-6 w-full origin-top-left items-center justify-between gap-2 bg-lab-bg/85 px-1.5 font-mono text-[11px] font-medium whitespace-nowrap"
+                    >
                       <span className="truncate text-xs text-white">{c.area !== null ? `${fmt(c.area, 1)} мм²` : 'нет контура'}</span>
                       <span style={{ color: c.deltaColor }}>{c.delta}</span>
                     </div>
