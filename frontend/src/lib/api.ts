@@ -3,7 +3,7 @@
 
 export type ApiWarning = { code: string; message: string }
 
-export type Health = { status: string; version: string; images: number; heic_supported: boolean }
+export type Health = { status: string; version: string; heic_supported: boolean }
 
 export type ApiCalibration = {
   kind?: 'square' | 'segment'
@@ -91,8 +91,13 @@ export const api = {
 
   logout: () => request<{ user: null }>('/auth/logout', { method: 'POST' }),
 
-  // Фото одного браузера лежат на сервере в своей группе, см. workspaceId() в photos.ts
+  // Фото одного браузера лежат на сервере в своей группе, см. workspaceId() в photos.ts.
+  // Чужие сервер не отдаёт: свои он узнаёт по ключу браузера в cookie (lib/workspace.ts)
   listImages: (group: string) => request<{ images: ApiImage[] }>(`/images?group=${encodeURIComponent(group)}`),
+
+  // Один раз: забрать свои фото, загруженные до появления ключей
+  claimWorkspace: (group: string) =>
+    request<{ claimed: number }>('/workspace/claim', { method: 'POST', body: JSON.stringify({ group }) }),
 
   // Сервер сразу ищет эталон и калибрует масштаб
   uploadImage: (file: File, group: string) => {

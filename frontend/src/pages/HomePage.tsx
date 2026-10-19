@@ -16,6 +16,7 @@ import { downloadBlob } from '@/lib/report'
 import type { Photo } from '@/lib/types'
 import { useMobile } from '@/lib/useMobile'
 import { useServerSync } from '@/lib/useServerSync'
+import { markClaimed, needsClaim } from '@/lib/workspace'
 
 type Patch = Partial<Photo> | ((p: Photo) => Partial<Photo>)
 
@@ -49,8 +50,12 @@ export default function HomePage() {
   useEffect(() => {
     if (restored.current) return
     restored.current = true
-    api
-      .listImages(workspaceId())
+    // фото, загруженные до появления ключей, сначала забираем себе — иначе сервер их не покажет
+    const claim = needsClaim()
+      ? api.claimWorkspace(workspaceId()).then(markClaimed, () => {})
+      : Promise.resolve()
+    claim
+      .then(() => api.listImages(workspaceId()))
       .then(({ images }) => {
         if (!images.length) return
         const items = images.map(photoFromServer)

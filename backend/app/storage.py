@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import threading
 import uuid
@@ -22,7 +23,7 @@ import numpy as np
 
 from . import config
 from .errors import AppError, not_found
-from .imaging import decode_upload, encode
+from .imaging import decode_upload, encode, strip_gps
 
 
 def now_iso() -> str:
@@ -31,6 +32,13 @@ def now_iso() -> str:
 
 def new_id() -> str:
     return uuid.uuid4().hex[:12]
+
+
+def clean_filename(name: str | None) -> str:
+    """Только имя файла, без папок и управляющих символов: оно попадает в архивы и заголовки ответов."""
+    name = re.split(r"[\\/]", name or "")[-1]
+    name = "".join(ch for ch in name if ch.isprintable()).strip().lstrip(".")
+    return name[:200] or "photo.jpg"
 
 
 class Store:
@@ -63,7 +71,9 @@ class Store:
         os.replace(tmp, d / "meta.json")
 
     # ------------------------------------------------------------ фото
-    def add_image(self, filename: str, data: bytes, group: str | None = None) -> tuple[dict, np.ndarray]:
+    def add_image(self, filename: str, data: bytes, group: str | None = None,
+                  owner: str | None = None) -> tuple[dict, np.ndarray]:
+        filename = clean_filename(filename)
         if len(data) == 0:
             raise AppError("EMPTY_FILE", f"Файл «{filename}» пустой", 422)
         if len(data) > config.MAX_UPLOAD_MB * 1024 * 1024:
@@ -71,12 +81,14 @@ class Store:
         ext = Path(filename).suffix.lower()
         if ext and ext not in config.ALLOWED_EXTENSIONS:
             raise AppError("BAD_FILE_TYPE", f"Файл «{filename}»: формат {ext} не поддерживается", 415)
+        if shutil.disk_usage(self.root).free < config.MIN_FREE_DISK_MB * 1024 * 1024:
+            raise AppError("DISK_FULL", "На сервере закончилось место для фото. Попробуйте позже", 507)
         bgr, info = decode_upload(data)
         h, w = bgr.shape[:2]
         image_id = new_id()
         d = self._dir(image_id)
         d.mkdir(parents=True)
-        (d / f"original{ext or '.bin'}").write_bytes(data)
+        (d / f"original{ext or '.bin'}").write_bytes(strip_gps(data))
         lossless = info["format"] in ("PNG", "TIFF", "BMP")
         work_name = "image.png" if lossless else "image.jpg"
         (d / work_name).write_bytes(encode(bgr, "png" if lossless else "jpg", quality=95))
@@ -93,6 +105,7 @@ class Store:
             "focal35_mm": info.get("focal35_mm"),
             "created_at": now_iso(),
             "group": group or None,
+            "owner": owner,
             "note": None,
             "detection": None,
             "calibration": None,

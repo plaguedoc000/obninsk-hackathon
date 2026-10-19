@@ -63,7 +63,13 @@ DETECT_MAX_CANDIDATES = _env_int("ONESCALE_DETECT_MAX_CANDIDATES", 5)
 
 # Ограничения на загрузку
 MAX_UPLOAD_MB = _env_float("ONESCALE_MAX_UPLOAD_MB", 1.0)  # сайт сам сжимает фото до 1 МБ (frontend/src/lib/compress.ts)
-MAX_IMAGE_PIXELS = _env_int("ONESCALE_MAX_IMAGE_PIXELS", 120_000_000)
+# 50 Мп в памяти — около 150 МБ, а сервису на сервере дано 450 МБ. Сайт и так шлёт не больше 4096 px по стороне
+MAX_IMAGE_PIXELS = _env_int("ONESCALE_MAX_IMAGE_PIXELS", 50_000_000)
+# Весь запрос целиком (несколько фото за раз через API), МБ
+MAX_REQUEST_MB = _env_float("ONESCALE_MAX_REQUEST_MB", 20.0)
+# Сколько фото может хранить один браузер и сколько места оставлять на диске сервера
+MAX_IMAGES_PER_WORKSPACE = _env_int("ONESCALE_MAX_IMAGES_PER_WORKSPACE", 300)
+MIN_FREE_DISK_MB = _env_float("ONESCALE_MIN_FREE_DISK_MB", 500.0)
 
 # Сколько фото держать в памяти для быстрой работы (на маленьком сервере — меньше)
 CACHE_IMAGES = max(1, _env_int("ONESCALE_CACHE_IMAGES", 6))

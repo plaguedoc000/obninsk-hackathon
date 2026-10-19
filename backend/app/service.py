@@ -18,7 +18,7 @@ from .grid import find_grid
 from .imaging import encode
 from .plane import find_sheet
 from .standardize import annotate, draw_caption, draw_outlines, fmt_num, plan_output, warp
-from .storage import Store, new_id, now_iso
+from .storage import Store, clean_filename, new_id, now_iso
 
 VERSION = "1.0.0"
 
@@ -441,7 +441,9 @@ def to_csv(rows: list[dict], sep: str = ";", decimal: str = ",", tz_minutes: int
             digits = {"area_mm2": 1, "area_cm2": 3, "perimeter_mm": 1, "uncertainty_pct": 1, "px_per_mm": 4, "marker_size_mm": 2}.get(key, 3)
             s = f"{v:.{digits}f}"
             return s.replace(".", decimal) if decimal != "." else s
-        return str(v)
+        s = str(v)
+        # текст, который Excel принял бы за формулу (=HYPERLINK(...) в имени файла), — с апострофом впереди
+        return "'" + s if isinstance(v, str) and s[:1] in ("=", "+", "-", "@", "\t", "\r") else s
 
     for row in rows:
         wr.writerow([fmt(row[k], k) for k, _ in CSV_COLUMNS])
@@ -477,7 +479,7 @@ def export_files(store: Store, image_ids: list[str] | None = None, group: str | 
             f"Площадь: {fmt_num(sum(areas), 1)} мм²" if areas else "Площадь: —",
             _local_date(_photo_date(m), tz_minutes),
         ])
-        stem = m["filename"].rsplit(".", 1)[0]
+        stem = clean_filename(m["filename"]).rsplit(".", 1)[0]
         name, n = f"{stem}.jpg", 2
         while name in used:
             name, n = f"{stem}_{n}.jpg", n + 1
@@ -512,7 +514,7 @@ def export_zip(store: Store, image_ids: list[str] | None = None, group: str | No
             used = set()
             for it in cmp["items"]:
                 data, _ = standardized_image(store, it["image_id"], cmp["px_per_mm"], mode, grid=True, annotate_flag=True)
-                stem = it["filename"].rsplit(".", 1)[0]
+                stem = clean_filename(it["filename"]).rsplit(".", 1)[0]
                 name = f"standardized/{stem}_std.jpg"
                 n = 2
                 while name in used:
